@@ -12,5 +12,8 @@
     "config.stone.name": "หินที่ใช้",
     "config.stone.tooltip": "จำนวนหินที่ต้องใช้สร้างโรงรถ",
     "config.buildDays.name": "จำนวนวันก่อสร้าง",
-    "config.buildDays.tooltip": "จำนวนวันที่ Robin ใช้สร้างโรงรถ"
+    "config.buildDays.tooltip": "จำนวนวันที่ Robin ใช้สร้างโรงรถ",
+
+    "config.engineOff.name": "ปุ่มดับเครื่องยนต์",
+    "config.engineOff.tooltip": "ดับเครื่อง — ลงจากรถแล้วเครื่องจะเดินเบาต่อจนกว่าจะกดปุ่มนี้ (รองรับคีย์บอร์ดและจอย)"
 }

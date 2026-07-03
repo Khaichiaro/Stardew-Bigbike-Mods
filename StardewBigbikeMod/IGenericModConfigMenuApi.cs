@@ -1,4 +1,5 @@
 using StardewModdingAPI;
+using StardewModdingAPI.Utilities;
 
 namespace StardewBigbikeMod
 {
@@ -17,5 +18,8 @@ namespace StardewBigbikeMod
 
         /// <summary>เพิ่มหัวข้อคั่นกลุ่มตัวเลือก</summary>
         void AddSectionTitle(IManifest mod, Func<string> text, Func<string>? tooltip = null);
+
+        /// <summary>เพิ่มช่องตั้งปุ่มลัด (รองรับทั้งคีย์บอร์ดและจอย)</summary>
+        void AddKeybindList(IManifest mod, Func<KeybindList> getValue, Action<KeybindList> setValue, Func<string> name, Func<string>? tooltip = null, string? fieldId = null);
     }
 }

@@ -1,8 +1,16 @@
+using StardewModdingAPI;
+using StardewModdingAPI.Utilities;
+
 namespace StardewBigbikeMod
 {
     /// <summary>ค่าตั้งของ mod — SMAPI จะ serialize เป็น config.json ในโฟลเดอร์ mod ให้อัตโนมัติ</summary>
     public sealed class ModConfig
     {
+        /// <summary>ปุ่มดับเครื่องยนต์ (รองรับหลายปุ่ม คั่นด้วยจุลภาค ทั้งคีย์บอร์ดและจอย)</summary>
+        public KeybindList EngineOffKey { get; set; } = new(
+            new Keybind(SButton.K),
+            new Keybind(SButton.ControllerBack));
+
         /// <summary>ค่าก่อสร้างโรงรถ (G)</summary>
         public int BuildCost { get; set; } = 10000;
 

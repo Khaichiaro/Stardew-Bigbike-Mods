@@ -6,6 +6,7 @@ using StardewModdingAPI.Events;
 using StardewValley;
 using StardewValley.Buildings;
 using StardewValley.Characters;
+using StardewValley.GameData;
 using StardewValley.GameData.Buildings;
 using StardewValley.Menus;
 
@@ -70,6 +71,27 @@ namespace StardewBigbikeMod
             else if (e.NameWithoutLocale.IsEquivalentTo(BikeTextureName))
             {
                 e.LoadFromModFile<Texture2D>("assets/bigbike.png", AssetLoadPriority.Exclusive);
+            }
+            else if (e.NameWithoutLocale.IsEquivalentTo("Data/AudioChanges"))
+            {
+                // ลงทะเบียนเสียงเครื่องยนต์เข้า sound bank ของเกม
+                e.Edit(asset =>
+                {
+                    var data = asset.AsDictionary<string, AudioCueData>().Data;
+                    data[EngineStartCue] = new AudioCueData
+                    {
+                        Id = EngineStartCue,
+                        Category = "Sound",
+                        FilePaths = new List<string> { Path.Combine(this.Helper.DirectoryPath, "assets", "engine_start.wav") },
+                    };
+                    data[EngineLoopCue] = new AudioCueData
+                    {
+                        Id = EngineLoopCue,
+                        Category = "Sound",
+                        Looped = true,
+                        FilePaths = new List<string> { Path.Combine(this.Helper.DirectoryPath, "assets", "engine_loop.wav") },
+                    };
+                });
             }
             else if (e.NameWithoutLocale.IsEquivalentTo("Data/Buildings"))
             {
@@ -157,7 +179,13 @@ namespace StardewBigbikeMod
                 min: 0,
                 max: 28
             );
-
+            gmcm.AddKeybindList(
+                mod: this.ModManifest,
+                getValue: () => this.Config.EngineOffKey,
+                setValue: value => this.Config.EngineOffKey = value,
+                name: () => this.Helper.Translation.Get("config.engineOff.name"),
+                tooltip: () => this.Helper.Translation.Get("config.engineOff.tooltip")
+            );
         }
 
         /// <summary>ตำแหน่งคนขับบนรถ ต่อทิศ (จูนเสร็จแล้ว fix ค่าถาวร) — คืนค่า (xOffset, yOffset)</summary>
@@ -261,6 +289,7 @@ namespace StardewBigbikeMod
             }
 
             this.UpdatePassengers();
+            this.UpdateEngine();
         }
 
         private void FixBikeSprite(Horse bike)
@@ -317,20 +346,39 @@ namespace StardewBigbikeMod
             if (Game1.player.mount is not null)
                 return;
 
-            // หา "รถที่มีคนขับ" ในระยะ 1 ช่องรอบตัว แล้วขึ้นซ้อน
-            foreach (Farmer other in Game1.player.currentLocation.farmers)
+            // หา "รถที่มีคนขับ" ใกล้ตัวผู้เล่น (รัศมี 2.5 ช่องจากตัวรถ) หรือคลิกที่ตัวรถตรงๆ
+            Vector2 cursorTile = e.Cursor.GrabTile;
+            foreach (Farmer other in Game1.getOnlineFarmers())
             {
-                if (other == Game1.player || other.mount is not Horse bike || !bike.modData.ContainsKey(BikeFlagKey))
+                if (other.UniqueMultiplayerID == Game1.player.UniqueMultiplayerID)
                     continue;
-                if (this.Passengers.ContainsValue(bike.HorseId))
-                    continue; // เบาะหลังไม่ว่าง
-                if (Math.Abs(other.TilePoint.X - Game1.player.TilePoint.X) <= 1
-                    && Math.Abs(other.TilePoint.Y - Game1.player.TilePoint.Y) <= 1)
+                if (other.currentLocation != Game1.player.currentLocation)
+                    continue;
+                if (other.mount is not Horse bike)
                 {
+                    this.Monitor.Log($"ซ้อนไม่ได้: {other.Name} ไม่ได้ขี่พาหนะ (mount=null)", LogLevel.Debug);
+                    continue;
+                }
+                if (!bike.modData.ContainsKey(BikeFlagKey))
+                {
+                    this.Monitor.Log($"ซ้อนไม่ได้: {other.Name} ขี่ม้าธรรมดา ไม่ใช่บิ๊กไบค์", LogLevel.Debug);
+                    continue;
+                }
+                if (this.Passengers.ContainsValue(bike.HorseId))
+                {
+                    this.Monitor.Log("ซ้อนไม่ได้: เบาะหลังไม่ว่าง", LogLevel.Debug);
+                    continue;
+                }
+                float distToPlayer = Vector2.Distance(bike.Position, Game1.player.Position);
+                float distToCursor = Vector2.Distance(bike.Tile, cursorTile);
+                if (distToPlayer <= 64f * 2.5f || distToCursor <= 2f)
+                {
+                    this.Monitor.Log($"ขึ้นซ้อนท้ายรถของ {other.Name}", LogLevel.Debug);
                     this.SetPassenger(Game1.player.UniqueMultiplayerID, bike.HorseId, mounted: true, broadcast: true);
                     this.Helper.Input.Suppress(e.Button);
                     return;
                 }
+                this.Monitor.Log($"ซ้อนไม่ได้: ไกลเกิน (ห่างรถ {distToPlayer / 64f:0.0} ช่อง)", LogLevel.Debug);
             }
         }
 
@@ -448,6 +496,7 @@ namespace StardewBigbikeMod
         {
             this.Passengers.Clear();
             this.WasRidingBike = false;
+            this.StopEngine();
         }
 
         /// <summary>Harmony postfix ของ Horse.draw — หันหน้าลง+มีคนขี่: วาดตัวรถทั้งคันซ้ำอีกชั้นทับคนขี่
@@ -500,11 +549,111 @@ namespace StardewBigbikeMod
                 this.Helper.Translation.Get("bike.defaultName"));
         }
 
-        /// <summary>สลับ sprite sheet ของม้าเป็นบิ๊กไบค์ (เฟรม 32x32 layout เดียวกับม้าเดิม)</summary>
+        /// <summary>สลับ sprite sheet ของม้าเป็นบิ๊กไบค์ (เฟรม 32x32 layout เดียวกับม้าเดิม) + ปิดเสียงฝีเท้าม้า</summary>
         private void ApplyBikeSprite(Horse bike)
         {
             if (bike.Sprite?.textureName.Value != BikeTextureName)
                 bike.Sprite = new AnimatedSprite(BikeTextureName, 0, 32, 32);
+            bike.onFootstepAction = _ => { }; // บิ๊กไบค์ไม่มีกีบเท้า — ใช้เสียงเครื่องยนต์แทน
+        }
+
+        // ==================== ระบบเสียงเครื่องยนต์ ====================
+
+        private const string EngineStartCue = "Khaichiaro.BigBike_EngineStart";
+        private const string EngineLoopCue = "Khaichiaro.BigBike_EngineLoop";
+
+        /// <summary>ลูปเสียงเครื่องที่กำลังเล่นอยู่ (null = เครื่องดับ/ยังไม่เข้าลูป)</summary>
+        private ICue? EngineCue;
+
+        /// <summary>รถคันที่เครื่องยนต์ติดอยู่</summary>
+        private Guid EngineBikeId;
+
+        /// <summary>เครื่องยนต์ติดอยู่ไหม (ยังติดต่อแม้ลงจากรถ จนกว่าจะกดปุ่มดับ)</summary>
+        private bool EngineOn;
+
+        /// <summary>ตัวนับรอเสียงสตาร์ทจบ ก่อนเริ่มลูปเดินเบา</summary>
+        private int StartCountdown;
+
+        /// <summary>pitch ปัจจุบัน (ไต่แบบนุ่มๆ ระหว่างเดินเบา ↔ เร่งรอบ)</summary>
+        private float EnginePitch;
+
+        /// <summary>จัดการเสียงเครื่องยนต์ทุก tick: สตาร์ท → ลูป → เร่ง/เดินเบา → ดับด้วยปุ่ม</summary>
+        private void UpdateEngine()
+        {
+            Horse? mountBike = Game1.player.mount?.modData.ContainsKey(BikeFlagKey) == true
+                ? Game1.player.mount
+                : null;
+
+            // ขึ้นรถตอนเครื่องดับ → สตาร์ทมือ
+            if (mountBike is not null && !this.EngineOn)
+            {
+                this.EngineOn = true;
+                this.EngineBikeId = mountBike.HorseId;
+                this.EnginePitch = 0f;
+                Game1.playSound(EngineStartCue);
+                this.StartCountdown = 55; // ~0.9 วิ ให้เสียงสตาร์ทเล่นก่อนเข้าลูป
+                return;
+            }
+            if (!this.EngineOn)
+                return;
+
+            // ปุ่มดับเครื่อง (ตั้งได้ทั้งคีย์บอร์ด/จอย)
+            if (this.Config.EngineOffKey.JustPressed())
+            {
+                this.StopEngine();
+                return;
+            }
+
+            if (this.StartCountdown > 0)
+            {
+                if (--this.StartCountdown == 0)
+                {
+                    this.EngineCue = Game1.soundBank.GetCue(EngineLoopCue);
+                    this.EngineCue.Play();
+                }
+                return;
+            }
+            if (this.EngineCue is null)
+                return;
+
+            Horse? bike = mountBike is not null && mountBike.HorseId == this.EngineBikeId
+                ? mountBike
+                : Utility.findHorse(this.EngineBikeId);
+            if (bike is null)
+            {
+                this.StopEngine();
+                return;
+            }
+
+            // ขี่อยู่+วิ่ง = เร่งรอบ / นอกนั้น = เดินเบา (ไต่ pitch นุ่มๆ)
+            bool revving = mountBike == bike && Game1.player.isMoving();
+            float target = revving ? 0.55f : 0f;
+            this.EnginePitch += (target - this.EnginePitch) * 0.08f;
+            this.EngineCue.Pitch = this.EnginePitch;
+
+            // ลงจากรถแล้วเครื่องยังติด → เสียงเบาลงตามระยะห่างจากรถ / เงียบถ้าอยู่คนละแมพ
+            if (mountBike == bike)
+            {
+                this.EngineCue.Volume = 1f;
+            }
+            else if (bike.currentLocation != Game1.currentLocation)
+            {
+                this.EngineCue.Volume = 0f;
+            }
+            else
+            {
+                float dist = Vector2.Distance(Game1.player.Position, bike.Position);
+                this.EngineCue.Volume = Math.Clamp(1f - dist / (64f * 12f), 0f, 1f);
+            }
+        }
+
+        /// <summary>ดับเครื่องยนต์</summary>
+        private void StopEngine()
+        {
+            this.EngineOn = false;
+            this.EnginePitch = 0f;
+            this.EngineCue?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+            this.EngineCue = null;
         }
     }
 }

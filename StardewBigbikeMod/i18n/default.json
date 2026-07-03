@@ -12,5 +12,8 @@
     "config.stone.name": "Stone required",
     "config.stone.tooltip": "How much stone is needed to build the garage.",
     "config.buildDays.name": "Build days",
-    "config.buildDays.tooltip": "How many days Robin takes to build the garage."
+    "config.buildDays.tooltip": "How many days Robin takes to build the garage.",
+
+    "config.engineOff.name": "Engine off button",
+    "config.engineOff.tooltip": "Kill the engine. The engine keeps idling after you dismount until you press this. Supports keyboard and controller."
 }
