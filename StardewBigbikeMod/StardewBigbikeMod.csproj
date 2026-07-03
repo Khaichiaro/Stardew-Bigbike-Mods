@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Stardew Valley 1.6 รันบน .NET 6 — ห้ามเปลี่ยนเป็น net8.0 -->
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>StardewBigbikeMod</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- ไฟล์อาร์ตต้นฉบับ เก็บไว้ใน repo แต่ไม่ต้องแนบไปกับ mod ที่ deploy/แจก -->
+    <IgnoreModFilePaths>assets/S1000rr-Garage.png</IgnoreModFilePaths>
+	<IgnoreModFilePaths>assets/bigbike.png.backup</IgnoreModFilePaths>
+	<IgnoreModFilePaths>assets/bigbike-V0.1.png</IgnoreModFilePaths>
+	<IgnoreModFilePaths>assets/bigbike-V0.2.png</IgnoreModFilePaths>
+	<IgnoreModFilePaths>assets/bigbike-V0.3.png</IgnoreModFilePaths>
+    <!-- เปิดใช้ Harmony สำหรับ patch การวาดรถทับคนขี่ -->
+    <EnableHarmony>true</EnableHarmony>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- reference เกม + SMAPI ให้อัตโนมัติ และ deploy mod ลงโฟลเดอร์ Mods ของเกมหลัง build -->
+    <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.*" />
+  </ItemGroup>
+
+</Project>

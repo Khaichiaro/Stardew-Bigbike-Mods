@@ -1,0 +1,16 @@
+{
+    "garage.name": "Bike Garage",
+    "garage.description": "A garage for your big bike. Come here to ride it out to the farm.",
+
+    "bike.nameTitle": "Name your big bike",
+    "bike.defaultName": "S1000RR",
+
+    "config.buildCost.name": "Build cost (G)",
+    "config.buildCost.tooltip": "How much gold Robin charges to build the garage.",
+    "config.wood.name": "Wood required",
+    "config.wood.tooltip": "How much wood is needed to build the garage.",
+    "config.stone.name": "Stone required",
+    "config.stone.tooltip": "How much stone is needed to build the garage.",
+    "config.buildDays.name": "Build days",
+    "config.buildDays.tooltip": "How many days Robin takes to build the garage."
+}

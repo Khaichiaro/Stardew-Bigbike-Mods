@@ -1,0 +1,16 @@
+{
+    "garage.name": "โรงรถบิ๊กไบค์",
+    "garage.description": "โรงจอดบิ๊กไบค์ของคุณ มาที่นี่เพื่อขี่มันออกไปได้เลย",
+
+    "bike.nameTitle": "ตั้งชื่อบิ๊กไบค์ของคุณ",
+    "bike.defaultName": "S1000RR",
+
+    "config.buildCost.name": "ค่าก่อสร้าง (G)",
+    "config.buildCost.tooltip": "จำนวนเงินที่ Robin คิดค่าสร้างโรงรถ",
+    "config.wood.name": "ไม้ที่ใช้",
+    "config.wood.tooltip": "จำนวนไม้ที่ต้องใช้สร้างโรงรถ",
+    "config.stone.name": "หินที่ใช้",
+    "config.stone.tooltip": "จำนวนหินที่ต้องใช้สร้างโรงรถ",
+    "config.buildDays.name": "จำนวนวันก่อสร้าง",
+    "config.buildDays.tooltip": "จำนวนวันที่ Robin ใช้สร้างโรงรถ"
+}
