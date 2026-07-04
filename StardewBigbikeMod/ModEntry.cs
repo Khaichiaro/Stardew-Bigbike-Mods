@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
+using StardewModdingAPI.Utilities;
 using StardewValley;
 using StardewValley.Buildings;
 using StardewValley.Characters;
@@ -30,8 +31,17 @@ namespace StardewBigbikeMod
         /// <summary>ค่าตั้งจาก config.json</summary>
         private ModConfig Config = null!;
 
+        // หมายเหตุ: สถานะ "ต่อผู้เล่น" ต้องใช้ PerScreen — split-screen มีผู้เล่นหลายคนใน process เดียว
+        // ถ้าเก็บเป็น field เดียวจะตีกัน (คนขี่ของ screen 1 กับ screen 2 เขียนทับกัน)
+
         /// <summary>tick ที่แล้วผู้เล่นขี่บิ๊กไบค์อยู่ไหม (ไว้รีเซ็ต offset ตอนลงจากรถ)</summary>
-        private bool WasRidingBike;
+        private readonly PerScreen<bool> WasRidingBike = new();
+
+        /// <summary>รถคันล่าสุดที่เราขับ (ไว้ดีดคนซ้อนตอนเราลงจากรถ)</summary>
+        private readonly PerScreen<Guid> LastRiddenBikeId = new();
+
+        /// <summary>tick ที่แล้วเราซ้อนท้ายอยู่ไหม (วาล์วกันค้าง: หลุดจากสถานะซ้อนเมื่อไหร่ ปลดล็อกตัวละครเสมอ)</summary>
+        private readonly PerScreen<bool> WasPassenger = new();
 
         public override void Entry(IModHelper helper)
         {
@@ -186,6 +196,7 @@ namespace StardewBigbikeMod
                 name: () => this.Helper.Translation.Get("config.engineOff.name"),
                 tooltip: () => this.Helper.Translation.Get("config.engineOff.tooltip")
             );
+
         }
 
         /// <summary>ตำแหน่งคนขับบนรถ ต่อทิศ (จูนเสร็จแล้ว fix ค่าถาวร) — คืนค่า (xOffset, yOffset)</summary>
@@ -197,13 +208,13 @@ namespace StardewBigbikeMod
             _ => (-12f, 0f),    // หันซ้าย
         };
 
-        /// <summary>ตำแหน่งคนซ้อนท้าย ต่อทิศ</summary>
+        /// <summary>ตำแหน่งคนซ้อนท้าย ต่อทิศ (จูนเสร็จแล้ว fix ค่าถาวร — ทุกเครื่องใช้ค่าเดียวกันจะได้เห็นตรงกัน)</summary>
         private static (float x, float y) PassengerSeat(int facingDirection) => facingDirection switch
         {
-            2 => (-5f, 55f),
-            0 => (-5f, -45f),
-            1 => (11f, 40f),
-            _ => (-22f, 40f),
+            2 => (-5f, 70f),   // หันหน้าลง
+            0 => (-5f, 15f),   // หันหลัง
+            1 => (13f, 97f),   // หันขวา
+            _ => (-25f, 97f),  // หันซ้าย
         };
 
         /// <summary>จังหวะโยกตามอนิเมชันของรถ (สูตรเดียวกับ Farmer.showRiding ของเกม)</summary>
@@ -270,29 +281,58 @@ namespace StardewBigbikeMod
         {
             if (!Context.IsWorldReady)
                 return;
-            // สำคัญ: รถที่กำลังถูกขี่จะไม่อยู่ใน characters ของแมพ (เกมย้ายไปเกาะกับผู้เล่น) ต้องเช็ค mount แยก
-            if (Game1.player.mount is Horse mounted)
-                this.FixBikeSprite(mounted);
 
-            // ลงจากรถเมื่อไหร่ ล้าง offset ที่ mod ตั้งไว้ ให้ตัวละครกลับตำแหน่งวาดปกติ
+            // จัด offset ของรถ+คนขับ ให้ "รถทุกคันที่มีคนขี่" (ไม่ใช่แค่ของเราเอง) — สำคัญมากในมัลติเพลเยอร์:
+            // offset เป็นค่า render เฉพาะเครื่อง ไม่ sync → ทุกเครื่องต้องคำนวณเองให้ครบทุกคน ถึงจะเห็นตรงกัน
+            var riddenBikes = new HashSet<Horse>();
+            foreach (Farmer f in Game1.getOnlineFarmers())
+            {
+                if (f.mount is Horse m && m.modData.ContainsKey(BikeFlagKey))
+                {
+                    this.FixBikeSprite(m, f);
+                    riddenBikes.Add(m);
+                }
+            }
+
+            // ลงจากรถเมื่อไหร่ ล้าง offset ที่ mod ตั้งไว้ + ดีดคนซ้อน (ถ้ามี) ให้ลงพร้อมกันแบบสะอาดๆ
             bool ridingBike = Game1.player.mount?.modData.ContainsKey(BikeFlagKey) == true;
-            if (!ridingBike && this.WasRidingBike)
+            if (ridingBike)
+            {
+                this.LastRiddenBikeId.Value = Game1.player.mount!.HorseId;
+            }
+            else if (this.WasRidingBike.Value)
             {
                 Game1.player.xOffset = 0f;
                 Game1.player.yOffset = 0f;
+                // เราคือคนขับที่เพิ่งลงจากรถ → ประกาศดีดคนซ้อนบนคันนั้นให้ทุกเครื่องรับรู้
+                foreach (var pair in this.Passengers.Where(kv => kv.Value == this.LastRiddenBikeId.Value).ToArray())
+                    this.SetPassenger(pair.Key, pair.Value, mounted: false, broadcast: true);
             }
-            this.WasRidingBike = ridingBike;
+            this.WasRidingBike.Value = ridingBike;
+
+            // วาล์วกันค้าง: หลุดจากทะเบียนคนซ้อนเมื่อไหร่ (ไม่ว่าด้วยเหตุไหน) ปลดล็อกตัวละครเสมอ
+            bool seated = this.Passengers.ContainsKey(Game1.player.UniqueMultiplayerID);
+            if (!seated && this.WasPassenger.Value)
+            {
+                this.ReleasePassenger(Game1.player, findOpenTile: true);
+                this.Monitor.Log("ปลดล็อกคนซ้อน (วาล์วกันค้าง)", LogLevel.Debug);
+            }
+            this.WasPassenger.Value = seated;
+
+            // รถที่จอดในแมพ (ไม่มีคนขี่) — จัด sprite/drawOffset ให้ด้วย
             foreach (var npc in Game1.player.currentLocation?.characters ?? new Netcode.NetCollection<NPC>())
             {
-                if (npc is Horse bike)
-                    this.FixBikeSprite(bike);
+                if (npc is Horse bike && !riddenBikes.Contains(bike))
+                    this.FixBikeSprite(bike, null);
             }
 
             this.UpdatePassengers();
             this.UpdateEngine();
         }
 
-        private void FixBikeSprite(Horse bike)
+        /// <summary>จัด sprite + drawOffset ของรถ และ (ถ้ามีคนขี่) offset ของคนขับ
+        /// — รับ driver เข้ามาตรงๆ เพราะ bike.rider ไม่ sync ข้ามเครื่อง ใช้ค่าจาก farmer ที่ mount จริง</summary>
+        private void FixBikeSprite(Horse bike, Farmer? driver)
         {
             if (!bike.modData.ContainsKey(BikeFlagKey) || bike.Sprite is null)
                 return;
@@ -309,14 +349,13 @@ namespace StardewBigbikeMod
                 && (bike.Sprite.CurrentAnimation is null || bike.Sprite.currentFrame >= 21);
             bike.drawOffset = new Vector2(-16f, standingSideways ? 4f : 0f);
 
-            // ตำแหน่งคนขับ (ค่า fix ที่จูนเสร็จแล้ว)
-            // คำนวณจังหวะโยกเองแล้ว "ทับ" ค่าไปเลย (ห้าม += เพราะช่วงอนิเมชันลงจากรถ
-            // เกมหยุดรีเซ็ตค่า ทำให้ทบต้นจนตัวละครลอยหลุดจอ)
-            if (bike.rider is not null)
+            // ตำแหน่งคนขับ (ค่า fix ที่จูนเสร็จแล้ว) — คำนวณจังหวะโยกเองแล้ว "ทับ" ค่าไปเลย
+            // (ห้าม += เพราะช่วงอนิเมชันลงจากรถ เกมหยุดรีเซ็ตค่า ทำให้ทบต้นจนตัวละครลอยหลุดจอ)
+            if (driver is not null)
             {
-                (float x, float y) = DriverSeat(bike.rider.FacingDirection);
-                bike.rider.xOffset = x;
-                bike.rider.yOffset = (bike.rider.isMoving() ? BikeBob(bike) : 0f) + y;
+                (float x, float y) = DriverSeat(driver.FacingDirection);
+                driver.xOffset = x;
+                driver.yOffset = (driver.isMoving() ? BikeBob(bike) : 0f) + y;
             }
         }
 
@@ -382,13 +421,34 @@ namespace StardewBigbikeMod
             }
         }
 
+        /// <summary>หา horse ตาม id — สำคัญ: Utility.findHorse ของเกมหาเฉพาะตัวที่จอดในแมพ
+        /// รถที่กำลังถูกขี่จะเกาะอยู่กับตัวคนขับ ต้องไล่เช็ค mount ของผู้เล่นทุกคนเอง</summary>
+        private static Horse? FindBike(Guid horseId)
+        {
+            foreach (Farmer f in Game1.getOnlineFarmers())
+            {
+                if (f.mount is Horse m && m.HorseId == horseId)
+                    return m;
+            }
+            return Utility.findHorse(horseId);
+        }
+
         /// <summary>อัปเดต/บันทึกสถานะคนซ้อน แล้วกระจายให้เครื่องอื่นถ้าต้องการ</summary>
         private void SetPassenger(long playerId, Guid horseId, bool mounted, bool broadcast)
         {
+            bool changed = mounted != this.Passengers.ContainsKey(playerId);
             if (mounted)
                 this.Passengers[playerId] = horseId;
             else
                 this.Passengers.Remove(playerId);
+
+            // อนิเมชันกระโดดขึ้น/ลง — SetPassenger รันทุกเครื่อง (ฝั่ง broadcast + ฝั่งรับ message)
+            // เรียก jump บน farmer object โดยตรง จึงเห็นทั้งจอคนขับและจอคนซ้อน ทั้ง split-screen และแยกเครื่อง
+            if (changed)
+            {
+                Farmer? p = Game1.getOnlineFarmers().FirstOrDefault(f => f.UniqueMultiplayerID == playerId);
+                p?.jump();
+            }
 
             if (broadcast)
             {
@@ -399,24 +459,30 @@ namespace StardewBigbikeMod
             }
         }
 
-        /// <summary>ผู้เล่นเครื่องนี้ลงจากเบาะหลัง: ปลดล็อกการเดิน แล้วหาที่ยืนข้างรถ</summary>
+        /// <summary>ผู้เล่นเครื่องนี้กดปุ่มลงจากเบาะหลัง</summary>
         private void DismountPassenger()
         {
             long id = Game1.player.UniqueMultiplayerID;
             if (!this.Passengers.TryGetValue(id, out Guid horseId))
                 return;
+            this.Monitor.Log("คนซ้อนลงจากรถ (กดปุ่ม)", LogLevel.Debug);
             this.SetPassenger(id, horseId, mounted: false, broadcast: true);
+            this.ReleasePassenger(Game1.player, findOpenTile: true);
+        }
 
-            Game1.player.canMove = true;
-            Game1.player.xOffset = 0f;
-            Game1.player.yOffset = 0f;
-            Game1.player.completelyStopAnimatingOrDoingAction();
-
-            Horse? bike = Utility.findHorse(horseId);
-            if (bike is not null && bike.currentLocation == Game1.player.currentLocation)
+        /// <summary>ปลดสถานะคนซ้อนออกจาก farmer object ตรงๆ (ใช้ได้ทั้ง local/split-screen):
+        /// ปลดล็อกการเดิน ล้าง offset หยุดท่านั่ง แล้ว (ถ้าขอ) หาช่องว่างข้างๆ ให้ไปยืน</summary>
+        private void ReleasePassenger(Farmer p, bool findOpenTile)
+        {
+            p.canMove = true;
+            p.xOffset = 0f;
+            p.yOffset = 0f;
+            p.completelyStopAnimatingOrDoingAction();
+            if (findOpenTile && p.currentLocation is not null)
             {
-                Vector2 open = Utility.getRandomAdjacentOpenTile(bike.Tile, Game1.player.currentLocation);
-                Game1.player.Position = (open == Vector2.Zero ? bike.Tile + new Vector2(0f, 1f) : open) * 64f;
+                Vector2 open = Utility.getRandomAdjacentOpenTile(p.Tile, p.currentLocation);
+                if (open != Vector2.Zero)
+                    p.Position = open * 64f;
             }
         }
 
@@ -427,46 +493,70 @@ namespace StardewBigbikeMod
                 return;
             foreach (var pair in this.Passengers.ToArray())
             {
-                Farmer? p = Game1.getOnlineFarmers().FirstOrDefault(f => f.UniqueMultiplayerID == pair.Key);
-                Horse? bike = Utility.findHorse(pair.Value);
-                bool isLocal = pair.Key == Game1.player.UniqueMultiplayerID;
+                long passengerId = pair.Key;
+                Guid horseId = pair.Value;
 
-                // คนขับลงจากรถ/รถหาย/คนซ้อนหลุดวง → ยกเลิกการซ้อน
-                if (p is null || bike is null || bike.rider is null || bike.rider == p)
+                Farmer? p = Game1.getOnlineFarmers().FirstOrDefault(f => f.UniqueMultiplayerID == passengerId);
+                // หา "คนขับ" จากผู้เล่นที่ mount รถคันนี้ (ห้ามใช้ bike.rider — ค่านั้นไม่ sync ข้ามเครื่อง)
+                Farmer? driver = Game1.getOnlineFarmers().FirstOrDefault(
+                    f => f.mount is Horse m && m.HorseId == horseId);
+
+                // คนซ้อนหลุดวง → ลบทิ้งเฉยๆ
+                if (p is null)
                 {
-                    if (isLocal)
-                        this.DismountPassenger();
-                    else
-                        this.Passengers.Remove(pair.Key);
+                    this.Passengers.Remove(passengerId);
                     continue;
                 }
 
-                // คนขับข้ามแมพ → เครื่องของคนซ้อนวาร์ปตามไปเอง
-                if (isLocal && bike.currentLocation is not null && bike.currentLocation != Game1.currentLocation)
+                // คนขับลงจากรถ/ไม่พบคนขับ → ยกเลิกการซ้อน แล้วปลดล็อกตัวคนซ้อน
+                if (driver is null || driver == p)
                 {
-                    Game1.warpFarmer(bike.currentLocation.Name, bike.TilePoint.X, bike.TilePoint.Y, false);
+                    this.Monitor.Log($"ยกเลิกซ้อน {p.Name}: ไม่พบคนขับรถคันนี้แล้ว", LogLevel.Debug);
+                    this.Passengers.Remove(passengerId);
+                    this.ReleasePassenger(p, findOpenTile: p.IsLocalPlayer);
                     continue;
                 }
 
-                if (p.currentLocation == bike.currentLocation)
-                    this.ApplyPassengerSeat(p, bike);
-                if (isLocal)
-                    Game1.player.canMove = false; // นั่งซ้อนอยู่ ห้ามเดินเอง (กด action อีกทีเพื่อลง)
+                // เทียบแมพด้วย "ชื่อ" ไม่ใช่ reference — remote farmer ชี้คนละ instance เลย == ไม่เคยจริง
+                string? pLoc = p.currentLocation?.NameOrUniqueName;
+                string? dLoc = driver.currentLocation?.NameOrUniqueName;
+
+                // คนขับอยู่คนละแมพกับคนซ้อน → พาคนซ้อน (เฉพาะจอ/เครื่องที่คุมตัวนี้) วาร์ปตามไป
+                if (dLoc is not null && pLoc is not null && pLoc != dLoc)
+                {
+                    this.Monitor.Log($"[warp] screen={Context.ScreenId} p={p.Name} local={p.IsLocalPlayer} {pLoc}→{dLoc}", LogLevel.Debug);
+                    if (p.IsLocalPlayer)
+                        Game1.warpFarmer(driver.currentLocation!.Name, driver.TilePoint.X, driver.TilePoint.Y + 1, false);
+                    continue;
+                }
+
+                // อยู่แมพเดียวกัน → ล็อกตำแหน่ง/ท่านั่งเกาะคนขับ (set บน farmer object ตรงๆ ครอบคลุมทุก screen)
+                if (dLoc is not null && pLoc == dLoc)
+                {
+                    Horse? bike = FindBike(horseId);
+                    this.ApplyPassengerSeat(p, driver, bike);
+                }
             }
         }
 
-        /// <summary>ล็อกตำแหน่ง + ท่านั่งของคนซ้อนให้ตามรถ (ทุกเครื่องคำนวณเองจากทะเบียน จะได้ลื่นไม่รอ network)</summary>
-        private void ApplyPassengerSeat(Farmer p, Horse bike)
+        /// <summary>ล็อกตำแหน่ง + ท่านั่งของคนซ้อนให้เกาะ "ตัวคนขับ" (ข้อมูลที่ sync ข้ามเครื่องแน่นอน)
+        /// — ตอนขี่ ตำแหน่งรถ = ตำแหน่งคนขับเป๊ะอยู่แล้ว จึงใช้แทนกันได้</summary>
+        private void ApplyPassengerSeat(Farmer p, Farmer driver, Horse? bike)
         {
-            int dir = bike.FacingDirection;
+            int dir = driver.FacingDirection;
             (float x, float y) = PassengerSeat(dir);
 
-            p.Position = bike.Position;
+            // ขยับ "ตำแหน่งจริง" ลงใต้รถเล็กน้อยเพื่อคุมลำดับการวาด (depth คิดจาก Y):
+            // ให้คนซ้อนวาดทับตัวรถ/คนขับ และไม่โดนพุ่มไม้-ต้นไม้แถวนั้นวาดทับ แล้วชดเชยภาพคืนด้วย yOffset
+            float depthNudge = dir == 2 ? 0f : 24f;
+
+            p.canMove = false; // ห้ามคนซ้อนเดินเอง (set บน object ตรงๆ ได้ผลทุก screen)
+            p.position.Value = driver.Position + new Vector2(0f, depthNudge);
             p.faceDirection(dir);
             // ท่านั่งเดียวกับตอนขี่: 113 = หันหลัง, 107 = หันหน้า, 106 = หันข้าง (ซ้ายใช้ flip)
             p.FarmerSprite.setCurrentSingleFrame(dir switch { 0 => 113, 2 => 107, _ => 106 }, 32000, false, dir == 3);
             p.xOffset = x;
-            p.yOffset = BikeBob(bike) + y;
+            p.yOffset = (bike is not null ? BikeBob(bike) : 0f) + y - depthNudge;
         }
 
         private void OnModMessageReceived(object? sender, ModMessageReceivedEventArgs e)
@@ -495,7 +585,8 @@ namespace StardewBigbikeMod
         private void ResetPassengerState(object? sender, EventArgs e)
         {
             this.Passengers.Clear();
-            this.WasRidingBike = false;
+            this.WasRidingBike.Value = false;
+            this.WasPassenger.Value = false;
             this.StopEngine();
         }
 
@@ -562,20 +653,22 @@ namespace StardewBigbikeMod
         private const string EngineStartCue = "Khaichiaro.BigBike_EngineStart";
         private const string EngineLoopCue = "Khaichiaro.BigBike_EngineLoop";
 
+        // เสียงเครื่องเป็นสถานะ "ต่อผู้เล่น" → PerScreen (split-screen สองคนขี่คนละคัน เสียงคนละตัว)
+
         /// <summary>ลูปเสียงเครื่องที่กำลังเล่นอยู่ (null = เครื่องดับ/ยังไม่เข้าลูป)</summary>
-        private ICue? EngineCue;
+        private readonly PerScreen<ICue?> EngineCue = new();
 
         /// <summary>รถคันที่เครื่องยนต์ติดอยู่</summary>
-        private Guid EngineBikeId;
+        private readonly PerScreen<Guid> EngineBikeId = new();
 
         /// <summary>เครื่องยนต์ติดอยู่ไหม (ยังติดต่อแม้ลงจากรถ จนกว่าจะกดปุ่มดับ)</summary>
-        private bool EngineOn;
+        private readonly PerScreen<bool> EngineOn = new();
 
         /// <summary>ตัวนับรอเสียงสตาร์ทจบ ก่อนเริ่มลูปเดินเบา</summary>
-        private int StartCountdown;
+        private readonly PerScreen<int> StartCountdown = new();
 
         /// <summary>pitch ปัจจุบัน (ไต่แบบนุ่มๆ ระหว่างเดินเบา ↔ เร่งรอบ)</summary>
-        private float EnginePitch;
+        private readonly PerScreen<float> EnginePitch = new();
 
         /// <summary>จัดการเสียงเครื่องยนต์ทุก tick: สตาร์ท → ลูป → เร่ง/เดินเบา → ดับด้วยปุ่ม</summary>
         private void UpdateEngine()
@@ -585,16 +678,16 @@ namespace StardewBigbikeMod
                 : null;
 
             // ขึ้นรถตอนเครื่องดับ → สตาร์ทมือ
-            if (mountBike is not null && !this.EngineOn)
+            if (mountBike is not null && !this.EngineOn.Value)
             {
-                this.EngineOn = true;
-                this.EngineBikeId = mountBike.HorseId;
-                this.EnginePitch = 0f;
+                this.EngineOn.Value = true;
+                this.EngineBikeId.Value = mountBike.HorseId;
+                this.EnginePitch.Value = 0f;
                 Game1.playSound(EngineStartCue);
-                this.StartCountdown = 55; // ~0.9 วิ ให้เสียงสตาร์ทเล่นก่อนเข้าลูป
+                this.StartCountdown.Value = 55; // ~0.9 วิ ให้เสียงสตาร์ทเล่นก่อนเข้าลูป
                 return;
             }
-            if (!this.EngineOn)
+            if (!this.EngineOn.Value)
                 return;
 
             // ปุ่มดับเครื่อง (ตั้งได้ทั้งคีย์บอร์ด/จอย)
@@ -604,21 +697,21 @@ namespace StardewBigbikeMod
                 return;
             }
 
-            if (this.StartCountdown > 0)
+            if (this.StartCountdown.Value > 0)
             {
-                if (--this.StartCountdown == 0)
+                if (--this.StartCountdown.Value == 0)
                 {
-                    this.EngineCue = Game1.soundBank.GetCue(EngineLoopCue);
-                    this.EngineCue.Play();
+                    this.EngineCue.Value = Game1.soundBank.GetCue(EngineLoopCue);
+                    this.EngineCue.Value.Play();
                 }
                 return;
             }
-            if (this.EngineCue is null)
+            if (this.EngineCue.Value is null)
                 return;
 
-            Horse? bike = mountBike is not null && mountBike.HorseId == this.EngineBikeId
+            Horse? bike = mountBike is not null && mountBike.HorseId == this.EngineBikeId.Value
                 ? mountBike
-                : Utility.findHorse(this.EngineBikeId);
+                : FindBike(this.EngineBikeId.Value);
             if (bike is null)
             {
                 this.StopEngine();
@@ -628,32 +721,32 @@ namespace StardewBigbikeMod
             // ขี่อยู่+วิ่ง = เร่งรอบ / นอกนั้น = เดินเบา (ไต่ pitch นุ่มๆ)
             bool revving = mountBike == bike && Game1.player.isMoving();
             float target = revving ? 0.55f : 0f;
-            this.EnginePitch += (target - this.EnginePitch) * 0.08f;
-            this.EngineCue.Pitch = this.EnginePitch;
+            this.EnginePitch.Value += (target - this.EnginePitch.Value) * 0.08f;
+            this.EngineCue.Value.Pitch = this.EnginePitch.Value;
 
             // ลงจากรถแล้วเครื่องยังติด → เสียงเบาลงตามระยะห่างจากรถ / เงียบถ้าอยู่คนละแมพ
             if (mountBike == bike)
             {
-                this.EngineCue.Volume = 1f;
+                this.EngineCue.Value.Volume = 1f;
             }
-            else if (bike.currentLocation != Game1.currentLocation)
+            else if (bike.currentLocation?.NameOrUniqueName != Game1.currentLocation?.NameOrUniqueName)
             {
-                this.EngineCue.Volume = 0f;
+                this.EngineCue.Value.Volume = 0f;
             }
             else
             {
                 float dist = Vector2.Distance(Game1.player.Position, bike.Position);
-                this.EngineCue.Volume = Math.Clamp(1f - dist / (64f * 12f), 0f, 1f);
+                this.EngineCue.Value.Volume = Math.Clamp(1f - dist / (64f * 12f), 0f, 1f);
             }
         }
 
         /// <summary>ดับเครื่องยนต์</summary>
         private void StopEngine()
         {
-            this.EngineOn = false;
-            this.EnginePitch = 0f;
-            this.EngineCue?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
-            this.EngineCue = null;
+            this.EngineOn.Value = false;
+            this.EnginePitch.Value = 0f;
+            this.EngineCue.Value?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+            this.EngineCue.Value = null;
         }
     }
 }

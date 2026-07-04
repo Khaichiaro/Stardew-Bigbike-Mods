@@ -22,5 +22,8 @@ namespace StardewBigbikeMod
 
         /// <summary>จำนวนวันที่ Robin ใช้สร้าง</summary>
         public int BuildDays { get; set; } = 2;
+
+        // หมายเหตุ: ตำแหน่งคนขับ/คนซ้อน fix ค่าตายตัวในโค้ด (DriverSeat/PassengerSeat) ไม่ทำเป็น config
+        // เพราะ offset เป็นค่า render เฉพาะเครื่อง ถ้าให้แต่ละเครื่องปรับเองจะเห็นตำแหน่งไม่ตรงกันข้ามเครื่อง
     }
 }
