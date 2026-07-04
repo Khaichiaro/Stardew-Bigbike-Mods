@@ -43,6 +43,9 @@ namespace StardewBigbikeMod
         /// <summary>tick ที่แล้วเราซ้อนท้ายอยู่ไหม (วาล์วกันค้าง: หลุดจากสถานะซ้อนเมื่อไหร่ ปลดล็อกตัวละครเสมอ)</summary>
         private readonly PerScreen<bool> WasPassenger = new();
 
+        /// <summary>กำลัง fade จอดำเพื่อวาร์ปคนซ้อนตามคนขับอยู่ไหม (กัน trigger fade ซ้ำทุก tick)</summary>
+        private readonly PerScreen<bool> WarpingPassenger = new();
+
         public override void Entry(IModHelper helper)
         {
             this.Config = helper.ReadConfig<ModConfig>();
@@ -408,16 +411,18 @@ namespace StardewBigbikeMod
                     this.Monitor.Log("ซ้อนไม่ได้: เบาะหลังไม่ว่าง", LogLevel.Debug);
                     continue;
                 }
-                float distToPlayer = Vector2.Distance(bike.Position, Game1.player.Position);
+                // ต้องอยู่ติดรถ 1 ช่อง (รวมแนวทแยง) หรือคลิกที่ตัวรถตรงๆ
+                bool adjacent = Math.Abs(bike.TilePoint.X - Game1.player.TilePoint.X) <= 1
+                    && Math.Abs(bike.TilePoint.Y - Game1.player.TilePoint.Y) <= 1;
                 float distToCursor = Vector2.Distance(bike.Tile, cursorTile);
-                if (distToPlayer <= 64f * 2.5f || distToCursor <= 2f)
+                if (adjacent || distToCursor <= 1f)
                 {
                     this.Monitor.Log($"ขึ้นซ้อนท้ายรถของ {other.Name}", LogLevel.Debug);
                     this.SetPassenger(Game1.player.UniqueMultiplayerID, bike.HorseId, mounted: true, broadcast: true);
                     this.Helper.Input.Suppress(e.Button);
                     return;
                 }
-                this.Monitor.Log($"ซ้อนไม่ได้: ไกลเกิน (ห่างรถ {distToPlayer / 64f:0.0} ช่อง)", LogLevel.Debug);
+                this.Monitor.Log("ซ้อนไม่ได้: ต้องยืนติดรถ 1 ช่อง", LogLevel.Debug);
             }
         }
 
@@ -442,12 +447,25 @@ namespace StardewBigbikeMod
             else
                 this.Passengers.Remove(playerId);
 
-            // อนิเมชันกระโดดขึ้น/ลง — SetPassenger รันทุกเครื่อง (ฝั่ง broadcast + ฝั่งรับ message)
-            // เรียก jump บน farmer object โดยตรง จึงเห็นทั้งจอคนขับและจอคนซ้อน ทั้ง split-screen และแยกเครื่อง
+            // SetPassenger รันทุกเครื่อง (ฝั่ง broadcast + ฝั่งรับ message) → จัดการ visual ให้ตรงกันทุกจอ
             if (changed)
             {
                 Farmer? p = Game1.getOnlineFarmers().FirstOrDefault(f => f.UniqueMultiplayerID == playerId);
-                p?.jump();
+                if (!mounted)
+                {
+                    // มีคนลงจากรถ → รีเซ็ต offset/ท่า ของ "ทุกคน" ทุกเครื่อง (ค่าพวกนี้ไม่ sync ข้ามเครื่อง
+                    // ต้องล้างเองทุกจอ ไม่งั้นจอคนอื่นเห็นคนซ้อน remote ค้างลอย/ท่านั่งค้างที่ท้ายรถ)
+                    foreach (Farmer f in Game1.getOnlineFarmers())
+                    {
+                        f.xOffset = 0f;
+                        f.yOffset = 0f;
+                    }
+                    p?.completelyStopAnimatingOrDoingAction();
+                }
+                // อนิเมชันกระโดดขึ้น/ลง — ใช้ synchronizedJump ที่มี event broadcast ให้เห็นทุกจอ
+                // (jump() ธรรมดาเป็น physics เฉพาะเครื่อง จอคนอื่นไม่เห็น)
+                // guard IsLocalPlayer ในตัวมันจัดการเอง: เฉพาะเครื่อง local ของ p ที่ fire แล้ว broadcast ให้ที่เหลือ
+                p?.synchronizedJump(8f);
             }
 
             if (broadcast)
@@ -524,11 +542,32 @@ namespace StardewBigbikeMod
                 // คนขับอยู่คนละแมพกับคนซ้อน → พาคนซ้อน (เฉพาะจอ/เครื่องที่คุมตัวนี้) วาร์ปตามไป
                 if (dLoc is not null && pLoc is not null && pLoc != dLoc)
                 {
-                    this.Monitor.Log($"[warp] screen={Context.ScreenId} p={p.Name} local={p.IsLocalPlayer} {pLoc}→{dLoc}", LogLevel.Debug);
-                    if (p.IsLocalPlayer)
-                        Game1.warpFarmer(driver.currentLocation!.Name, driver.TilePoint.X, driver.TilePoint.Y + 1, false);
+                    // Game1.warpFarmer พึ่ง static locationRequest ที่ split-screen ทุก instance แชร์กัน → ใช้ไม่ได้
+                    // จึงย้าย location ของคนซ้อนเอง พร้อม fade จอดำ ปิด-เปิด ให้เนียนเหมือนคนขับข้ามแมพ
+                    if (p.IsLocalPlayer && !this.WarpingPassenger.Value
+                        && Game1.getLocationFromName(dLoc) is GameLocation target)
+                    {
+                        this.Monitor.Log($"[warp] {p.Name} {pLoc}→{dLoc}", LogLevel.Debug);
+                        this.WarpingPassenger.Value = true;
+                        Farmer localP = p, localDriver = driver;
+                        Game1.globalFadeToBlack(() =>
+                        {
+                            localP.currentLocation?.cleanupBeforePlayerExit();
+                            localP.currentLocation = target;
+                            // สำคัญ: set Game1.currentLocation ด้วย ไม่งั้น viewport/กล้องจอคนซ้อนไม่เปลี่ยนแมพตาม
+                            // (setter ผูกกับ instanceGameLocation ต่อจอ + trigger location change ให้เอง)
+                            Game1.currentLocation = target;
+                            localP.Position = localDriver.Position;
+                            target.resetForPlayerEntry();
+                            Game1.forceSnapOnNextViewportUpdate = true;
+                            Game1.globalFadeToClear();
+                            this.WarpingPassenger.Value = false;
+                        }, 0.03f);
+                    }
                     continue;
                 }
+                // มาถึงแมพคนขับแล้ว → เคลียร์ธงกันค้าง (เผื่อ callback ไม่ทำงานด้วยเหตุใด)
+                this.WarpingPassenger.Value = false;
 
                 // อยู่แมพเดียวกัน → ล็อกตำแหน่ง/ท่านั่งเกาะคนขับ (set บน farmer object ตรงๆ ครอบคลุมทุก screen)
                 if (dLoc is not null && pLoc == dLoc)
