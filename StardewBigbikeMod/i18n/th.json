@@ -1,5 +1,6 @@
 {
-    "garage.name": "โรงรถบิ๊กไบค์",
+    "garage.name.s1000rr": "โรงรถบิ๊กไบค์ — BMW S1000RR",
+    "garage.name.v4s": "โรงรถบิ๊กไบค์ — Ducati V4S",
     "garage.description": "โรงจอดบิ๊กไบค์ของคุณ มาที่นี่เพื่อขี่มันออกไปได้เลย",
 
     "bike.nameTitle": "ตั้งชื่อบิ๊กไบค์ของคุณ",
@@ -7,10 +8,13 @@
 
     "config.buildCost.name": "ค่าก่อสร้าง (G)",
     "config.buildCost.tooltip": "จำนวนเงินที่ Robin คิดค่าสร้างโรงรถ",
-    "config.wood.name": "ไม้ที่ใช้",
-    "config.wood.tooltip": "จำนวนไม้ที่ต้องใช้สร้างโรงรถ",
-    "config.stone.name": "หินที่ใช้",
-    "config.stone.tooltip": "จำนวนหินที่ต้องใช้สร้างโรงรถ",
+    "config.iron.name": "เหล็กแท่งที่ใช้",
+    "config.iron.tooltip": "จำนวนเหล็กแท่งที่ต้องใช้สร้างโรงรถ",
+    "config.iridium.name": "อีรีเดียมแท่งที่ใช้",
+    "config.iridium.tooltip": "จำนวนอีรีเดียมแท่งที่ต้องใช้สร้างโรงรถ",
+    "config.battery.name": "แบตเตอรี่ที่ใช้",
+    "config.battery.tooltip": "จำนวนแบตเตอรี่ที่ต้องใช้สร้างโรงรถ",
+
     "config.buildDays.name": "จำนวนวันก่อสร้าง",
     "config.buildDays.tooltip": "จำนวนวันที่ Robin ใช้สร้างโรงรถ",
 

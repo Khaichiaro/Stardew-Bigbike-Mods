@@ -17,8 +17,11 @@ namespace StardewBigbikeMod
     /// <summary>Mod เพิ่ม "โรงรถบิ๊กไบค์" ซื้อได้จาก Robin — ข้างในคือคอกม้าที่ spawn ม้า แล้วเราสลับ sprite ม้าตัวนั้นเป็นบิ๊กไบค์</summary>
     public class ModEntry : Mod
     {
-        /// <summary>id ของสิ่งก่อสร้างโรงรถใน Data/Buildings</summary>
+        /// <summary>id โรงรถ BMW S1000RR (สีดำ) ใน Data/Buildings</summary>
         private const string GarageBuildingId = "Khaichiaro.BigBike_Garage";
+
+        /// <summary>id โรงรถ Ducati V4S (สีแดง)</summary>
+        private const string GarageV4SId = "Khaichiaro.BigBike_Garage_V4S";
 
         /// <summary>key ใน modData ที่ใช้แท็กว่าม้าตัวนี้คือบิ๊กไบค์</summary>
         private const string BikeFlagKey = "Khaichiaro.BigBike/IsBike";
@@ -26,8 +29,14 @@ namespace StardewBigbikeMod
         /// <summary>ชื่อ asset ของ texture โรงรถ (ผ่าน content pipeline)</summary>
         private const string GarageTextureName = "Mods/Khaichiaro.BigBike/Garage";
 
-        /// <summary>ชื่อ asset ของ texture บิ๊กไบค์</summary>
+        /// <summary>ชื่อ asset ของ texture บิ๊กไบค์ (สีดำ = ค่าเริ่มต้น)</summary>
         private const string BikeTextureName = "Mods/Khaichiaro.BigBike/BigBike";
+
+        /// <summary>ชื่อ asset ของ texture Ducati V4S (แดง)</summary>
+        private const string BikeTextureRed = "Mods/Khaichiaro.BigBike/BigBikeRed";
+
+        /// <summary>key ใน modData เก็บรุ่นรถ ("s1000rr" = BMW ดำ / "v4s" = Ducati แดง)</summary>
+        private const string ModelKey = "Khaichiaro.BigBike/Model";
 
         /// <summary>ค่าตั้งจาก config.json</summary>
         private ModConfig Config = null!;
@@ -90,6 +99,10 @@ namespace StardewBigbikeMod
             {
                 e.LoadFromModFile<Texture2D>("assets/bigbike.png", AssetLoadPriority.Exclusive);
             }
+            else if (e.NameWithoutLocale.IsEquivalentTo(BikeTextureRed))
+            {
+                e.LoadFromModFile<Texture2D>("assets/bigbike_red.png", AssetLoadPriority.Exclusive);
+            }
             else if (e.NameWithoutLocale.IsEquivalentTo("Data/AudioChanges"))
             {
                 // ลงทะเบียนเสียงเครื่องยนต์ทั้งหมดเข้า sound bank ของเกม
@@ -123,28 +136,36 @@ namespace StardewBigbikeMod
                 e.Edit(asset =>
                 {
                     var data = asset.AsDictionary<string, BuildingData>().Data;
-                    data[GarageBuildingId] = new BuildingData
+
+                    // สร้าง building option 1 อัน (เหมือนกันหมด ต่างแค่ชื่อ+รูปตามรุ่น)
+                    BuildingData MakeGarage(string nameKey, string texture) => new BuildingData
                     {
-                        Name = this.Helper.Translation.Get("garage.name"),
+                        Name = this.Helper.Translation.Get(nameKey),
                         Description = this.Helper.Translation.Get("garage.description"),
-                        Texture = GarageTextureName,
+                        Texture = texture,
                         Builder = "Robin",
                         BuildCost = this.Config.BuildCost,
+                        // วัสดุสร้างโรงรถ
+                        // 🔧 DEV: เปลี่ยนวัสดุตรงนี้ — Wood=(O)388, Stone=(O)390, Iron Bar=(O)335, Iridium=(O)337, Battery=(O)787
                         BuildMaterials = new List<BuildingMaterial>
                         {
-                            new() { ItemId = "(O)388", Amount = this.Config.WoodAmount },  // ไม้
-                            new() { ItemId = "(O)390", Amount = this.Config.StoneAmount }, // หิน
+                            new() { ItemId = "(O)388", Amount = 1 }, // ไม้ (Wood)
+                            new() { ItemId = "(O)390", Amount = 1 }, // หิน (Stone)
+                            // new() { ItemId = "(O)335", Amount = this.Config.IronBars },     // เหล็กแท่ง
+                            // new() { ItemId = "(O)337", Amount = this.Config.IridiumBars },  // อีรีเดียมแท่ง
+                            // new() { ItemId = "(O)787", Amount = this.Config.Batteries },    // แบตเตอรี่
                         },
                         BuildDays = this.Config.BuildDays,
                         Size = new Point(4, 2),
-                        // ใช้คลาส Stable ของเกม → ได้ระบบ spawn/ขี่/ผูกกับผู้เล่นมาฟรีทั้งหมด
-                        BuildingType = "StardewValley.Buildings.Stable",
+                        BuildingType = "StardewValley.Buildings.Stable", // ยืมกลไกคอกม้า (spawn/ขี่)
                         HumanDoor = new Point(-1, -1),
-                        // ให้อาคารวาดอยู่ "หลัง" ตัวละคร/รถที่ยืนแถวประตู → รถในโรงรถมองเห็นได้
-                        SortTileOffset = 1f,
-                        // แถวล่าง 2 ช่องกลางเดินทะลุได้ (ช่องประตู) แบบเดียวกับ garage ของ TractorMod
-                        CollisionMap = "XXXX\nXOOX",
+                        SortTileOffset = 1f,           // วาดหลังตัวละคร/รถแถวประตู
+                        CollisionMap = "XXXX\nXOOX",   // ช่องประตูเดินทะลุได้
                     };
+
+                    // 2 รุ่นให้เลือกในเมนู Robin (เลื่อนซ้าย-ขวาเลือกได้ตามปกติของเกม)
+                    data[GarageBuildingId] = MakeGarage("garage.name.s1000rr", GarageTextureName);
+                    data[GarageV4SId] = MakeGarage("garage.name.v4s", GarageTextureName);
                 });
             }
         }
@@ -182,22 +203,25 @@ namespace StardewBigbikeMod
             );
             gmcm.AddNumberOption(
                 mod: this.ModManifest,
-                getValue: () => this.Config.WoodAmount,
-                setValue: value => this.Config.WoodAmount = value,
-                name: () => this.Helper.Translation.Get("config.wood.name"),
-                tooltip: () => this.Helper.Translation.Get("config.wood.tooltip"),
-                min: 0,
-                max: 999
-            );
+                getValue: () => this.Config.IronBars,
+                setValue: value => this.Config.IronBars = value,
+                name: () => this.Helper.Translation.Get("config.iron.name"),
+                tooltip: () => this.Helper.Translation.Get("config.iron.tooltip"),
+                min: 0, max: 999);
             gmcm.AddNumberOption(
                 mod: this.ModManifest,
-                getValue: () => this.Config.StoneAmount,
-                setValue: value => this.Config.StoneAmount = value,
-                name: () => this.Helper.Translation.Get("config.stone.name"),
-                tooltip: () => this.Helper.Translation.Get("config.stone.tooltip"),
-                min: 0,
-                max: 999
-            );
+                getValue: () => this.Config.IridiumBars,
+                setValue: value => this.Config.IridiumBars = value,
+                name: () => this.Helper.Translation.Get("config.iridium.name"),
+                tooltip: () => this.Helper.Translation.Get("config.iridium.tooltip"),
+                min: 0, max: 999);
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => this.Config.Batteries,
+                setValue: value => this.Config.Batteries = value,
+                name: () => this.Helper.Translation.Get("config.battery.name"),
+                tooltip: () => this.Helper.Translation.Get("config.battery.tooltip"),
+                min: 0, max: 999);
             gmcm.AddNumberOption(
                 mod: this.ModManifest,
                 getValue: () => this.Config.BuildDays,
@@ -290,12 +314,20 @@ namespace StardewBigbikeMod
 
             Utility.ForEachBuilding(building =>
             {
-                if (building.buildingType.Value == GarageBuildingId && building is Stable garage)
+                // ระบุรุ่นรถจากชนิดโรงรถที่สร้าง (BMW = โรงรถ S1000RR / Ducati = โรงรถ V4S)
+                string? model = building.buildingType.Value switch
+                {
+                    GarageBuildingId => "s1000rr",
+                    GarageV4SId => "v4s",
+                    _ => null,
+                };
+                if (model is not null && building is Stable garage)
                 {
                     Horse? bike = garage.getStableHorse();
                     if (bike is not null)
                     {
                         bike.modData[BikeFlagKey] = "true";
+                        bike.modData[ModelKey] = model; // ผูกรุ่นตามโรงรถ
                         this.ApplyBikeSprite(bike);
 
                         // จอดในช่องประตูโรงรถ (จุด spawn เดิมของคอกม้า) หันข้างโชว์ตัวรถ
@@ -374,6 +406,11 @@ namespace StardewBigbikeMod
             if (!bike.modData.ContainsKey(BikeFlagKey) || bike.Sprite is null)
                 return;
             bike.onFootstepAction = _ => { }; // ปิดเสียงกีบม้าทุกเครื่อง (รันให้รถทุกคัน) — กันบัคเสียงม้าเวลาคนอื่นขี่
+
+            // สลับ texture ตามสีที่เลือก (ดำ/แดง) — เช็คทุก tick เผื่อสีเปลี่ยนกลางวัน
+            string wantTex = GetBikeModel(bike) == "v4s" ? BikeTextureRed : BikeTextureName;
+            if (bike.Sprite.textureName.Value != wantTex)
+                bike.Sprite = new AnimatedSprite(wantTex, bike.Sprite.currentFrame, 32, 32);
             if (bike.Sprite.CurrentAnimation is null && bike.Sprite.currentFrame % 7 != 0)
             {
                 bike.Sprite.currentFrame -= bike.Sprite.currentFrame % 7;
@@ -709,17 +746,24 @@ namespace StardewBigbikeMod
             string horseTitle = Game1.content.LoadString("Strings\\Characters:NameYourHorse");
             if (menu.title != horseTitle)
                 return; // ไม่ใช่ dialog ตั้งชื่อม้า
+
+            // เปลี่ยนหัวข้อเป็น "ตั้งชื่อรถ" เฉยๆ (รุ่นเลือกตอนสร้างกับ Robin แล้ว ไม่ต้องถามซ้ำ)
             Game1.activeClickableMenu = new NamingMenu(
                 menu.doneNaming,
                 this.Helper.Translation.Get("bike.nameTitle"),
                 this.Helper.Translation.Get("bike.defaultName"));
         }
 
-        /// <summary>สลับ sprite sheet ของม้าเป็นบิ๊กไบค์ (เฟรม 32x32 layout เดียวกับม้าเดิม) + ปิดเสียงฝีเท้าม้า</summary>
+        /// <summary>รุ่นรถจาก modData ("s1000rr" ค่าเริ่มต้น = BMW ดำ / "v4s" = Ducati แดง)</summary>
+        private static string GetBikeModel(Horse bike) =>
+            bike.modData.TryGetValue(ModelKey, out string? m) ? m : "s1000rr";
+
+        /// <summary>สลับ sprite sheet ของม้าเป็นบิ๊กไบค์ (เฟรม 32x32) ตามสีที่เลือก + ปิดเสียงฝีเท้าม้า</summary>
         private void ApplyBikeSprite(Horse bike)
         {
-            if (bike.Sprite?.textureName.Value != BikeTextureName)
-                bike.Sprite = new AnimatedSprite(BikeTextureName, 0, 32, 32);
+            string wantTex = GetBikeModel(bike) == "v4s" ? BikeTextureRed : BikeTextureName;
+            if (bike.Sprite?.textureName.Value != wantTex)
+                bike.Sprite = new AnimatedSprite(wantTex, 0, 32, 32);
             bike.onFootstepAction = _ => { }; // บิ๊กไบค์ไม่มีกีบเท้า — ใช้เสียงเครื่องยนต์แทน
         }
 

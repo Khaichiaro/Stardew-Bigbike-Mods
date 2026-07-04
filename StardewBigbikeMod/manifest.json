@@ -1,7 +1,7 @@
 {
     "Name": "Big Bike",
     "Author": "Khaichiaro",
-    "Version": "0.1.0",
+    "Version": "0.5.2",
     "Description": "Buy a garage from Robin and get a big bike to ride alongside your horse.",
     "UniqueID": "Khaichiaro.BigBike",
     "EntryDll": "StardewBigbikeMod.dll",
