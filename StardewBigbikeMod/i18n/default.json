@@ -15,5 +15,15 @@
     "config.buildDays.tooltip": "How many days Robin takes to build the garage.",
 
     "config.engineOff.name": "Engine off button",
-    "config.engineOff.tooltip": "Kill the engine. The engine keeps idling after you dismount until you press this. Supports keyboard and controller."
+    "config.engineOff.tooltip": "Kill the engine. The engine keeps idling after you dismount until you press this. Supports keyboard and controller.",
+
+    "config.rev.name": "Rev button (hold)",
+    "config.rev.tooltip": "Hold to rev the engine in place (keyboard and controller).",
+
+    "config.minSpeed.name": "Min speed (gear 1)",
+    "config.minSpeed.tooltip": "Speed in 1st gear. Gears shift up automatically as you ride.",
+    "config.maxSpeed.name": "Max speed (gear 6)",
+    "config.maxSpeed.tooltip": "Top speed in 6th gear.",
+    "config.volume.name": "Engine volume",
+    "config.volume.tooltip": "Engine sound volume (0 = mute, 1 = normal, 2 = loudest)."
 }

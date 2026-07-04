@@ -2,6 +2,7 @@ using HarmonyLib;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
+using StardewValley.Buffs;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
@@ -31,6 +32,9 @@ namespace StardewBigbikeMod
         /// <summary>ค่าตั้งจาก config.json</summary>
         private ModConfig Config = null!;
 
+        /// <summary>texture วงกลม HUD บอกเกียร์ (สร้างตอน GameLaunched)</summary>
+        private Texture2D? GearHudTexture;
+
         // หมายเหตุ: สถานะ "ต่อผู้เล่น" ต้องใช้ PerScreen — split-screen มีผู้เล่นหลายคนใน process เดียว
         // ถ้าเก็บเป็น field เดียวจะตีกัน (คนขี่ของ screen 1 กับ screen 2 เขียนทับกัน)
 
@@ -57,6 +61,7 @@ namespace StardewBigbikeMod
             helper.Events.Player.Warped += this.OnWarped;
             helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
             helper.Events.Display.MenuChanged += this.OnMenuChanged;
+            helper.Events.Display.RenderedHud += this.OnRenderedHud;
 
             // ระบบคนซ้อนท้าย
             helper.Events.Input.ButtonPressed += this.OnButtonPressed;
@@ -87,23 +92,30 @@ namespace StardewBigbikeMod
             }
             else if (e.NameWithoutLocale.IsEquivalentTo("Data/AudioChanges"))
             {
-                // ลงทะเบียนเสียงเครื่องยนต์เข้า sound bank ของเกม
+                // ลงทะเบียนเสียงเครื่องยนต์ทั้งหมดเข้า sound bank ของเกม
                 e.Edit(asset =>
                 {
                     var data = asset.AsDictionary<string, AudioCueData>().Data;
-                    data[EngineStartCue] = new AudioCueData
+                    string dir = Path.Combine(this.Helper.DirectoryPath, "assets");
+                    void Reg(string id, string file, bool loop)
                     {
-                        Id = EngineStartCue,
-                        Category = "Sound",
-                        FilePaths = new List<string> { Path.Combine(this.Helper.DirectoryPath, "assets", "engine_start.wav") },
-                    };
-                    data[EngineLoopCue] = new AudioCueData
-                    {
-                        Id = EngineLoopCue,
-                        Category = "Sound",
-                        Looped = true,
-                        FilePaths = new List<string> { Path.Combine(this.Helper.DirectoryPath, "assets", "engine_loop.wav") },
-                    };
+                        data[id] = new AudioCueData
+                        {
+                            Id = id,
+                            Category = "Sound",
+                            Looped = loop,
+                            FilePaths = new List<string> { Path.Combine(dir, file) },
+                        };
+                    }
+                    Reg(CueStart, "engine_start.wav", false);       // สตาร์ทมือ (ครั้งแรก)
+                    Reg(CueIdle, "engine_loop.wav", true);          // เดินเบา — นิ่งทุกเกียร์
+                    Reg(CueRev, "Burn_S1000RR.wav", true);          // เบิ้ลเครื่อง (loop ตอนกดค้าง)
+                    // ไล่เกียร์: เสียงเต็มไฟล์ (เล่นจบ = ขึ้นเกียร์ถัดไป)
+                    Reg(CueGear1, "Increase_speed_S1000RR.wav", false);
+                    Reg(CueGear2, "Chain_gear_up_to_2_S1000RR.wav", false);
+                    Reg(CueGear3, "Chain_gear_up_to_3_S1000RR.wav", false);
+                    Reg(CueGear4, "Chain_gear_up_to_4_S1000RR.wav", false);
+                    Reg(CueGear6Loop, "Chain4_tail.wav", true);     // เกียร์ 6 วนต่อเนื่อง (ยืดจาก Chain 4)
                 });
             }
             else if (e.NameWithoutLocale.IsEquivalentTo("Data/Buildings"))
@@ -140,6 +152,9 @@ namespace StardewBigbikeMod
         /// <summary>ลงทะเบียนหน้า setting กับ Generic Mod Config Menu (ถ้าผู้เล่นติดตั้งไว้)</summary>
         private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
         {
+            // สร้าง texture วงกลม HUD บอกเกียร์ (pixel-art: ขอบม่วง + ในดำโปร่ง)
+            this.GearHudTexture = this.MakeGearHudTexture();
+
             var gmcm = this.Helper.ModRegistry.GetApi<IGenericModConfigMenuApi>("spacechase0.GenericModConfigMenu");
             if (gmcm is null)
                 return; // ไม่มี GMCM ก็ไม่เป็นไร — แก้ config.json ตรงๆ ได้เหมือนเดิม
@@ -192,14 +207,32 @@ namespace StardewBigbikeMod
                 min: 0,
                 max: 28
             );
-            gmcm.AddKeybindList(
-                mod: this.ModManifest,
-                getValue: () => this.Config.EngineOffKey,
-                setValue: value => this.Config.EngineOffKey = value,
-                name: () => this.Helper.Translation.Get("config.engineOff.name"),
-                tooltip: () => this.Helper.Translation.Get("config.engineOff.tooltip")
-            );
+            // ---- ปุ่มควบคุม ----
+            void AddKey(string key, Func<KeybindList> get, Action<KeybindList> set)
+            {
+                gmcm.AddKeybindList(this.ModManifest, get, set,
+                    () => this.Helper.Translation.Get($"config.{key}.name"),
+                    () => this.Helper.Translation.Get($"config.{key}.tooltip"));
+            }
+            AddKey("engineOff", () => this.Config.EngineOffKey, v => this.Config.EngineOffKey = v);
+            AddKey("rev", () => this.Config.RevKey, v => this.Config.RevKey = v);
 
+            // ---- ความเร็ว (ต่ำสุด=เกียร์ 1, สูงสุด=เกียร์ 6) + ระดับเสียง ----
+            gmcm.AddNumberOption(this.ModManifest,
+                () => this.Config.MinSpeed, v => this.Config.MinSpeed = v,
+                () => this.Helper.Translation.Get("config.minSpeed.name"),
+                () => this.Helper.Translation.Get("config.minSpeed.tooltip"),
+                min: 0f, max: 20f, interval: 0.5f);
+            gmcm.AddNumberOption(this.ModManifest,
+                () => this.Config.MaxSpeed, v => this.Config.MaxSpeed = v,
+                () => this.Helper.Translation.Get("config.maxSpeed.name"),
+                () => this.Helper.Translation.Get("config.maxSpeed.tooltip"),
+                min: 0f, max: 30f, interval: 0.5f);
+            gmcm.AddNumberOption(this.ModManifest,
+                () => this.Config.EngineVolume, v => this.Config.EngineVolume = v,
+                () => this.Helper.Translation.Get("config.volume.name"),
+                () => this.Helper.Translation.Get("config.volume.tooltip"),
+                min: 0f, max: 2f, interval: 0.1f);
         }
 
         /// <summary>ตำแหน่งคนขับบนรถ ต่อทิศ (จูนเสร็จแล้ว fix ค่าถาวร) — คืนค่า (xOffset, yOffset)</summary>
@@ -307,6 +340,7 @@ namespace StardewBigbikeMod
             {
                 Game1.player.xOffset = 0f;
                 Game1.player.yOffset = 0f;
+                Game1.player.buffs.Remove("Khaichiaro.BigBike_Speed"); // เลิกขี่ → ล้าง speed buff ของเกียร์
                 // เราคือคนขับที่เพิ่งลงจากรถ → ประกาศดีดคนซ้อนบนคันนั้นให้ทุกเครื่องรับรู้
                 foreach (var pair in this.Passengers.Where(kv => kv.Value == this.LastRiddenBikeId.Value).ToArray())
                     this.SetPassenger(pair.Key, pair.Value, mounted: false, broadcast: true);
@@ -339,6 +373,7 @@ namespace StardewBigbikeMod
         {
             if (!bike.modData.ContainsKey(BikeFlagKey) || bike.Sprite is null)
                 return;
+            bike.onFootstepAction = _ => { }; // ปิดเสียงกีบม้าทุกเครื่อง (รันให้รถทุกคัน) — กันบัคเสียงม้าเวลาคนอื่นขี่
             if (bike.Sprite.CurrentAnimation is null && bike.Sprite.currentFrame % 7 != 0)
             {
                 bike.Sprite.currentFrame -= bike.Sprite.currentFrame % 7;
@@ -604,6 +639,7 @@ namespace StardewBigbikeMod
                 return;
             var msg = e.ReadAs<PassengerMsg>();
             this.SetPassenger(msg.PlayerId, msg.HorseId, msg.Mounted, broadcast: false);
+            // เบิ้ลเครื่อง sync ผ่าน bike.modData แล้ว ไม่ต้อง broadcast แยก
         }
 
         /// <summary>มีคนเพิ่งเข้าวง: ถ้าเราซ้อนอยู่ ประกาศสถานะซ้ำให้เครื่องใหม่รู้</summary>
@@ -626,7 +662,7 @@ namespace StardewBigbikeMod
             this.Passengers.Clear();
             this.WasRidingBike.Value = false;
             this.WasPassenger.Value = false;
-            this.StopEngine();
+            this.StopAllEngineAudio();
         }
 
         /// <summary>Harmony postfix ของ Horse.draw — หันหน้าลง+มีคนขี่: วาดตัวรถทั้งคันซ้ำอีกชั้นทับคนขี่
@@ -687,105 +723,397 @@ namespace StardewBigbikeMod
             bike.onFootstepAction = _ => { }; // บิ๊กไบค์ไม่มีกีบเท้า — ใช้เสียงเครื่องยนต์แทน
         }
 
-        // ==================== ระบบเสียงเครื่องยนต์ ====================
+        // ==================== ระบบเครื่องยนต์ + เกียร์ 6 สปีด (multiplayer sync) ====================
+        //
+        // แนวคิด sync: gear + engineOn เก็บใน bike.modData (sync ทุกเครื่องอัตโนมัติ)
+        // แต่ละเครื่อง "เล่นเสียงเอง" ให้รถทุกคันในแมพตัวเอง (volume ตามระยะจากผู้เล่นในเครื่องนั้น)
+        // → ทุกคนในแมพเดียวกันได้ยินเสียงเครื่องเหมือนกัน ไม่ใช่เสียงกีบม้า
 
-        private const string EngineStartCue = "Khaichiaro.BigBike_EngineStart";
-        private const string EngineLoopCue = "Khaichiaro.BigBike_EngineLoop";
+        private const string CueStart = "Khaichiaro.BigBike_Start";
+        private const string CueIdle = "Khaichiaro.BigBike_Idle";       // เดินเบา — ใช้ตอนนิ่งทุกเกียร์
+        private const string CueRev = "Khaichiaro.BigBike_Rev";
+        // ไล่เกียร์อัตโนมัติ: เสียงแต่ละเกียร์เล่นเต็มไฟล์ จบแล้วขึ้นเกียร์ถัดไป (เกียร์ 5-6 = เกียร์ 4 + pitch)
+        private const string CueGear1 = "Khaichiaro.BigBike_Gear1";     // Increase_speed
+        private const string CueGear2 = "Khaichiaro.BigBike_Gear2";     // Chain 2
+        private const string CueGear3 = "Khaichiaro.BigBike_Gear3";     // Chain 3
+        private const string CueGear4 = "Khaichiaro.BigBike_Gear4";     // Chain 4 (ใช้เกียร์ 4-6)
+        private const string CueGear6Loop = "Khaichiaro.BigBike_Gear6Loop"; // เกียร์ 6 วนต่อเนื่อง (Chain4 ยืด)
 
-        // เสียงเครื่องเป็นสถานะ "ต่อผู้เล่น" → PerScreen (split-screen สองคนขี่คนละคัน เสียงคนละตัว)
+        private const string GearKey = "Khaichiaro.BigBike/Gear";
+        private const string EngineOnKey = "Khaichiaro.BigBike/EngineOn";
+        private const string RevingKey = "Khaichiaro.BigBike/Reving"; // เบิ้ลเครื่องอยู่ไหม (sync ผ่าน modData)
 
-        /// <summary>ลูปเสียงเครื่องที่กำลังเล่นอยู่ (null = เครื่องดับ/ยังไม่เข้าลูป)</summary>
-        private readonly PerScreen<ICue?> EngineCue = new();
+        /// <summary>สถานะเสียงต่อรถ 1 คัน (per-machine — แต่ละเครื่องเล่นเสียงเองไม่ sync)</summary>
+        private sealed class BikeAudio
+        {
+            public ICue? Loop;         // เสียงลูป (idle เดินเบา หรือ loop เกียร์ 6)
+            public ICue? Main;         // เสียงเกียร์ที่กำลังไล่ (เล่นจบ = ขึ้นเกียร์ถัดไป)
+            public ICue? Rev;          // เสียงเบิ้ลเครื่อง (loop ตอนกดค้าง)
+            public ICue? FadeLoop;     // เดินเบาที่กำลัง fade ตอนออกตัว (crossfade idle→เกียร์ 1)
+            public float RevFade = 1f;
+            public float FadeVol = 1f;
+            public string Sound = "";  // "idle" หรือ "gear"
+            public int PlayGear;       // เกียร์ที่กำลังเล่นเสียงอยู่ (0 = ยังไม่เริ่ม/idle)
+            public bool Started;
+            public int StartDelay;
+            public int LastMovingTick; // debounce กัน false stop ตอน turn/ติดหิน
+        }
 
-        /// <summary>รถคันที่เครื่องยนต์ติดอยู่</summary>
-        private readonly PerScreen<Guid> EngineBikeId = new();
+        /// <summary>ความเร็วปัจจุบัน (ไต่นุ่มๆ ไปตามเกียร์)</summary>
+        private readonly PerScreen<float> CurrentSpeed = new();
 
-        /// <summary>เครื่องยนต์ติดอยู่ไหม (ยังติดต่อแม้ลงจากรถ จนกว่าจะกดปุ่มดับ)</summary>
-        private readonly PerScreen<bool> EngineOn = new();
+        /// <summary>ทะเบียนเสียงรถทุกคันที่เครื่องนี้กำลังเล่น</summary>
+        private readonly Dictionary<Guid, BikeAudio> BikeAudios = new();
 
-        /// <summary>ตัวนับรอเสียงสตาร์ทจบ ก่อนเริ่มลูปเดินเบา</summary>
-        private readonly PerScreen<int> StartCountdown = new();
+        /// <summary>จำนวนเกียร์สูงสุด</summary>
+        private const int MaxGear = 6;
 
-        /// <summary>pitch ปัจจุบัน (ไต่แบบนุ่มๆ ระหว่างเดินเบา ↔ เร่งรอบ)</summary>
-        private readonly PerScreen<float> EnginePitch = new();
+        private static int GetGear(Horse bike) =>
+            bike.modData.TryGetValue(GearKey, out string? g) && int.TryParse(g, out int v) ? Math.Clamp(v, 1, MaxGear) : 1;
 
-        /// <summary>จัดการเสียงเครื่องยนต์ทุก tick: สตาร์ท → ลูป → เร่ง/เดินเบา → ดับด้วยปุ่ม</summary>
+        private static bool IsEngineOn(Horse bike) =>
+            bike.modData.TryGetValue(EngineOnKey, out string? v) && v == "true";
+
+        /// <summary>ทุก tick: จัดการอินพุตเกียร์/เบิ้ล/ดับ (คนขับ local) + เล่นเสียงรถทุกคันในแมพ + ปรับความเร็ว</summary>
         private void UpdateEngine()
         {
-            Horse? mountBike = Game1.player.mount?.modData.ContainsKey(BikeFlagKey) == true
-                ? Game1.player.mount
-                : null;
-
-            // ขึ้นรถตอนเครื่องดับ → สตาร์ทมือ
-            if (mountBike is not null && !this.EngineOn.Value)
+            // --- อินพุตของคนขับ (เฉพาะรถที่เราขี่เอง) ---
+            Horse? myBike = Game1.player.mount?.modData.ContainsKey(BikeFlagKey) == true ? Game1.player.mount : null;
+            if (myBike is not null)
             {
-                this.EngineOn.Value = true;
-                this.EngineBikeId.Value = mountBike.HorseId;
-                this.EnginePitch.Value = 0f;
-                Game1.playSound(EngineStartCue);
-                this.StartCountdown.Value = 55; // ~0.9 วิ ให้เสียงสตาร์ทเล่นก่อนเข้าลูป
-                return;
-            }
-            if (!this.EngineOn.Value)
-                return;
-
-            // ปุ่มดับเครื่อง (ตั้งได้ทั้งคีย์บอร์ด/จอย)
-            if (this.Config.EngineOffKey.JustPressed())
-            {
-                this.StopEngine();
-                return;
-            }
-
-            if (this.StartCountdown.Value > 0)
-            {
-                if (--this.StartCountdown.Value == 0)
+                if (!IsEngineOn(myBike))
                 {
-                    this.EngineCue.Value = Game1.soundBank.GetCue(EngineLoopCue);
-                    this.EngineCue.Value.Play();
+                    myBike.modData[EngineOnKey] = "true";
+                    myBike.modData[GearKey] = "1";
                 }
-                return;
+                else if (this.Config.EngineOffKey.JustPressed())
+                {
+                    myBike.modData[EngineOnKey] = "false";
+                    myBike.modData[RevingKey] = "false";
+                }
+                else
+                {
+                    // เกียร์เปลี่ยนอัตโนมัติ (ไม่มีปุ่มเกียร์แล้ว) — เบิ้ลเครื่อง = กดค้าง (sync ให้ทุกคนได้ยิน)
+                    myBike.modData[RevingKey] = this.Config.RevKey.IsDown() ? "true" : "false";
+                }
             }
-            if (this.EngineCue.Value is null)
-                return;
-
-            Horse? bike = mountBike is not null && mountBike.HorseId == this.EngineBikeId.Value
-                ? mountBike
-                : FindBike(this.EngineBikeId.Value);
-            if (bike is null)
+            else if (this.Config.EngineOffKey.JustPressed()
+                && FindBike(this.LastRiddenBikeId.Value) is Horse parked && IsEngineOn(parked))
             {
-                this.StopEngine();
-                return;
+                // ลงจากรถแล้วเครื่องยังเดินเบา → กดปุ่มดับได้แม้ไม่ได้นั่งอยู่
+                parked.modData[EngineOnKey] = "false";
+                parked.modData[RevingKey] = "false";
             }
 
-            // ขี่อยู่+วิ่ง = เร่งรอบ / นอกนั้น = เดินเบา (ไต่ pitch นุ่มๆ)
-            bool revving = mountBike == bike && Game1.player.isMoving();
-            float target = revving ? 0.55f : 0f;
-            this.EnginePitch.Value += (target - this.EnginePitch.Value) * 0.08f;
-            this.EngineCue.Value.Pitch = this.EnginePitch.Value;
+            // --- เล่นเสียงรถทุกคันที่เครื่องติด (ทั้งที่มีคนขี่ และจอดเดินเบา) + คำนวณความเร็วรถเรา ---
+            var active = new HashSet<Guid>();
+            Guid? myBikeId = null; bool myMoving = false; int myGear = 1;
 
-            // ลงจากรถแล้วเครื่องยังติด → เสียงเบาลงตามระยะห่างจากรถ / เงียบถ้าอยู่คนละแมพ
-            if (mountBike == bike)
+            void Process(Horse bike, Farmer? driver)
             {
-                this.EngineCue.Value.Volume = 1f;
+                if (!bike.modData.ContainsKey(BikeFlagKey) || !IsEngineOn(bike) || !active.Add(bike.HorseId))
+                    return;
+                bool moving = driver is not null && driver.isMoving();
+                bool local = driver?.IsLocalPlayer == true;
+                var loc = (driver?.currentLocation ?? bike.currentLocation)?.NameOrUniqueName;
+                bool sameMap = loc == Game1.currentLocation?.NameOrUniqueName;
+                this.UpdateBikeAudio(bike, moving, sameMap, local);
+                if (local)
+                {
+                    myBikeId = bike.HorseId;
+                    myMoving = moving;
+                    myGear = GetGear(bike);
+                }
             }
-            else if (bike.currentLocation?.NameOrUniqueName != Game1.currentLocation?.NameOrUniqueName)
+
+            // รถที่มีคนขี่ (ตัวเราหรือคนอื่น)
+            foreach (Farmer f in Game1.getOnlineFarmers())
+                if (f.mount is Horse bk)
+                    Process(bk, f);
+            // รถที่จอดในแมพแต่เครื่องยังติด → เดินเบาต่อ (ลงจากรถแล้วเสียงไม่หาย)
+            if (Game1.currentLocation is not null)
+                foreach (NPC npc in Game1.currentLocation.characters)
+                    if (npc is Horse bk)
+                        Process(bk, null);
+
+            // ความเร็วรถที่เราขี่ — แปรตามเกียร์ (เกียร์ 1 = ต่ำสุด, เกียร์ 6 = สูงสุด) ไต่นุ่มๆ ผ่าน Buff
+            if (myBikeId is not null)
             {
-                this.EngineCue.Value.Volume = 0f;
+                float t = (myGear - 1) / (float)(MaxGear - 1);
+                float target = myMoving ? this.Config.MinSpeed + (this.Config.MaxSpeed - this.Config.MinSpeed) * t : 0f;
+                this.CurrentSpeed.Value += (target - this.CurrentSpeed.Value) * 0.06f;
+                this.ApplyBikeSpeedBuff(this.CurrentSpeed.Value);
             }
             else
             {
-                float dist = Vector2.Distance(Game1.player.Position, bike.Position);
-                this.EngineCue.Value.Volume = Math.Clamp(1f - dist / (64f * 12f), 0f, 1f);
+                this.CurrentSpeed.Value = 0f;
+            }
+
+            // --- หยุด+ล้างเสียงรถที่ดับเครื่อง/หายไปแล้ว ---
+            foreach (Guid id in this.BikeAudios.Keys.ToArray())
+            {
+                if (!active.Contains(id))
+                {
+                    BikeAudio dead = this.BikeAudios[id];
+                    dead.Loop?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                    dead.Main?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                    dead.Rev?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                    this.BikeAudios.Remove(id);
+                }
             }
         }
 
-        /// <summary>ดับเครื่องยนต์</summary>
-        private void StopEngine()
+        /// <summary>pitch เพิ่มของเกียร์ 5-6 (ไม่มีไฟล์เฉพาะ ใช้ไฟล์เกียร์ 4 แล้วดัน pitch ต่อเนื่อง)</summary>
+        private static float GearPitch(int gear) => gear switch
         {
-            this.EngineOn.Value = false;
-            this.EnginePitch.Value = 0f;
-            this.EngineCue.Value?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
-            this.EngineCue.Value = null;
+            5 => 0.15f,
+            6 => 0.30f,
+            _ => 0f,
+        };
+
+        /// <summary>เล่น/อัปเดตเสียงเครื่องแบบ "เกียร์อัตโนมัติ" — ไล่เสียงเกียร์ 1→6 เอง เสียงจบเปลี่ยนเกียร์เอง</summary>
+        private void UpdateBikeAudio(Horse bike, bool movingNow, bool audible, bool isLocalDriver)
+        {
+            if (!this.BikeAudios.TryGetValue(bike.HorseId, out BikeAudio? a))
+            {
+                a = new BikeAudio();
+                this.BikeAudios[bike.HorseId] = a;
+            }
+
+            // เสียงสตาร์ทมือ (ครั้งแรกที่ติดเครื่อง)
+            if (!a.Started)
+            {
+                a.Started = true;
+                a.StartDelay = 50;
+                this.PlayOneShot(CueStart, bike, audible, 1f);
+                return;
+            }
+            if (a.StartDelay > 0) { a.StartDelay--; return; }
+
+            // debounce การเคลื่อนที่ — isMoving = กดปุ่มเดิน (ติดหิน/หันทิศ = ยังกด = ยัง true)
+            if (movingNow)
+                a.LastMovingTick = Game1.ticks;
+            bool moving = (Game1.ticks - a.LastMovingTick) < 15;
+
+            int gear = GetGear(bike);
+            float vol = (audible ? this.VolumeByDistance(bike) : 0f) * this.Config.EngineVolume;
+
+            // fade เสียงเดินเบาที่ค้างอยู่ตอนออกตัว (crossfade idle→เกียร์ 1 ให้สมูธ)
+            if (a.FadeLoop is not null)
+            {
+                a.FadeVol -= 0.06f;
+                if (a.FadeVol <= 0f) { a.FadeLoop.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate); a.FadeLoop = null; }
+                else a.FadeLoop.Volume = vol * a.FadeVol;
+            }
+
+            bool reving = bike.modData.TryGetValue(RevingKey, out string? r) && r == "true";
+
+            // เบิ้ลเครื่อง (กดค้าง): หยุดเสียงเครื่องก่อน แล้วเล่น Burn วนต่อเนื่อง
+            if (reving)
+            {
+                a.Loop?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.Main?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.Loop = null; a.Main = null; a.Sound = ""; a.PlayGear = 0;
+                if (a.Rev is null) { a.Rev = Game1.soundBank.GetCue(CueRev); a.Rev.Play(); }
+                a.RevFade = 1f;
+                a.Rev.Volume = vol;
+                return;
+            }
+            if (a.Rev is not null) // เพิ่งปล่อยเบิ้ล → fade ลงเร็ว
+            {
+                a.RevFade -= 0.2f;
+                if (a.RevFade <= 0f) { a.Rev.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate); a.Rev = null; }
+                else a.Rev.Volume = vol * a.RevFade;
+            }
+
+            // ---- นิ่ง → เดินเบา + รีเซ็ตเกียร์ 1 ----
+            if (!moving)
+            {
+                if (a.Sound != "idle")
+                {
+                    a.Main?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                    a.Loop?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                    a.Main = null;
+                    a.Loop = Game1.soundBank.GetCue(CueIdle);
+                    a.Loop.Play();
+                    a.Sound = "idle";
+                    a.PlayGear = 0;
+                }
+                if (isLocalDriver && gear != 1)
+                    bike.modData[GearKey] = "1";
+                if (a.Loop is not null) a.Loop.Volume = vol;
+                return;
+            }
+
+            // ---- วิ่ง → ไล่เกียร์อัตโนมัติ (เกียร์เจ้าของคือคนขับ ใช้ modData sync) ----
+            // เริ่มออกตัวจากเดินเบา → crossfade idle ค้าง fade + เริ่มเกียร์ 1
+            if (a.Sound != "gear")
+            {
+                a.FadeLoop = a.Loop; a.FadeVol = 1f; // ให้เดินเบา fade ต่อ (สมูธ)
+                a.Loop = null;
+                a.Sound = "gear";
+                a.PlayGear = 0;
+                if (isLocalDriver) bike.modData[GearKey] = "1";
+                gear = 1;
+            }
+
+            // คนขับเลื่อนเกียร์อัตโนมัติเมื่อเสียงเกียร์ปัจจุบันเล่นจบ (ยังไม่ถึงเกียร์ 6)
+            if (isLocalDriver && gear < MaxGear && a.Main is not null && !a.Main.IsPlaying)
+            {
+                bike.modData[GearKey] = (gear + 1).ToString();
+                gear = gear + 1;
+            }
+
+            float pitch = GearPitch(gear);
+
+            // สลับเสียงเมื่อเกียร์เปลี่ยน (ทุกเครื่องทำตาม modData)
+            if (a.PlayGear != gear)
+            {
+                a.PlayGear = gear;
+                a.Loop?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.Loop = null;
+                a.Main?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.Main = Game1.soundBank.GetCue(this.GearMainCue(gear));
+                a.Main.Pitch = pitch;
+                a.Main.Play();
+            }
+
+            // เกียร์ 6 = เกียร์สุดท้าย เสียงจบแล้ววนต่อเนื่อง (ขับค้างนานๆ)
+            if (gear >= MaxGear && a.Main is not null && !a.Main.IsPlaying)
+            {
+                a.Main = null;
+                a.Loop = Game1.soundBank.GetCue(CueGear6Loop);
+                a.Loop.Pitch = pitch;
+                a.Loop.Play();
+            }
+
+            if (a.Main is not null) { a.Main.Pitch = pitch; a.Main.Volume = vol; }
+            if (a.Loop is not null) { a.Loop.Pitch = pitch; a.Loop.Volume = vol; }
+        }
+
+        /// <summary>เพิ่มความเร็วรถผ่านระบบ Buff (1.6 เปลี่ยน addedSpeed เป็น read-only จาก buff เท่านั้น)</summary>
+        private void ApplyBikeSpeedBuff(float speed)
+        {
+            const string id = "Khaichiaro.BigBike_Speed";
+            if (speed <= 0.01f)
+            {
+                Game1.player.buffs.Remove(id);
+                return;
+            }
+            var fx = new BuffEffects();
+            fx.Speed.Value = speed;
+            var buff = new Buff(
+                id: id,
+                source: "Big Bike",
+                displaySource: "Big Bike",
+                duration: 2000,          // refresh ทุก tick จึงไม่หมดระหว่างขี่
+                effects: fx,
+                isDebuff: false,
+                displayName: "Big Bike")
+            {
+                visible = false          // ไม่โชว์ไอคอน buff บนจอ
+            };
+            Game1.player.applyBuff(buff);
+        }
+
+        /// <summary>เสียงของเกียร์ (เกียร์ 4-6 ใช้ไฟล์เกียร์ 4 + pitch)</summary>
+        private string GearMainCue(int gear) => gear switch
+        {
+            1 => CueGear1,
+            2 => CueGear2,
+            3 => CueGear3,
+            _ => CueGear4, // 4,5,6
+        };
+
+        /// <summary>เล่นเสียงครั้งเดียว (one-shot) ณ ตำแหน่งรถ ดังตามระยะ</summary>
+        private void PlayOneShot(string cueId, Horse bike, bool audible, float pitch)
+        {
+            if (!audible)
+                return;
+            ICue cue = Game1.soundBank.GetCue(cueId);
+            cue.Pitch = pitch;
+            cue.Volume = this.VolumeByDistance(bike);
+            cue.Play();
+        }
+
+        /// <summary>ความดังตามระยะจากผู้เล่นในเครื่องนี้ (ไกลเกิน 14 ช่อง = เงียบ)</summary>
+        private float VolumeByDistance(Horse bike)
+        {
+            float dist = Vector2.Distance(Game1.player.Position, bike.Position);
+            return Math.Clamp(1f - dist / (64f * 14f), 0f, 1f);
+        }
+
+        // ==================== HUD วงกลมบอกเกียร์ (มุมบนซ้าย) ====================
+
+        /// <summary>รถที่ผู้เล่นเครื่องนี้กำลังนั่งอยู่ (ขับเองหรือซ้อนท้าย) — ไว้แสดง HUD เกียร์</summary>
+        private Horse? GetLocalRiddenBike()
+        {
+            if (Game1.player.mount is Horse m && m.modData.ContainsKey(BikeFlagKey))
+                return m;
+            if (this.Passengers.TryGetValue(Game1.player.UniqueMultiplayerID, out Guid id))
+                return FindBike(id);
+            return null;
+        }
+
+        /// <summary>สร้าง texture วงกลม pixel-art (ขอบม่วงตามธีม + พื้นในดำโปร่ง)</summary>
+        private Texture2D MakeGearHudTexture()
+        {
+            const int sz = 56;
+            var tex = new Texture2D(Game1.graphics.GraphicsDevice, sz, sz);
+            var data = new Color[sz * sz];
+            float c = sz / 2f, rOut = sz / 2f - 1f, rIn = rOut - 5f;
+            Color ring = new Color(124, 58, 237);   // ม่วงตามธีม
+            Color fill = new Color(20, 20, 25) * 0.82f;
+            for (int y = 0; y < sz; y++)
+                for (int x = 0; x < sz; x++)
+                {
+                    float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(c, c));
+                    data[y * sz + x] = d <= rIn ? fill : (d <= rOut ? ring : Color.Transparent);
+                }
+            tex.SetData(data);
+            return tex;
+        }
+
+        /// <summary>วาด HUD เกียร์ตอนนั่งรถ (คนขับ+คนซ้อนเห็นเหมือนกัน)</summary>
+        private void OnRenderedHud(object? sender, RenderedHudEventArgs e)
+        {
+            if (this.GearHudTexture is null || !Context.IsWorldReady)
+                return;
+            Horse? bike = this.GetLocalRiddenBike();
+            if (bike is null)
+                return;
+
+            SpriteBatch b = e.SpriteBatch;
+            Vector2 pos = new(32f, 32f);
+            b.Draw(this.GearHudTexture, pos, null, Color.White, 0f, Vector2.Zero, 1f, SpriteEffects.None, 1f);
+
+            // เลขเกียร์กลางวงกลม
+            string txt = GetGear(bike).ToString();
+            SpriteFont font = Game1.dialogueFont;
+            Vector2 ts = font.MeasureString(txt);
+            Vector2 center = pos + new Vector2(28f, 26f) - ts / 2f;
+            b.DrawString(font, txt, center + new Vector2(2f, 2f), Color.Black * 0.6f);
+            b.DrawString(font, txt, center, Color.White);
+
+            // ป้าย "GEAR" เล็กๆ ใต้วงกลม
+            const string label = "GEAR";
+            Vector2 ls = Game1.smallFont.MeasureString(label) * 0.7f;
+            Vector2 lp = pos + new Vector2(28f - ls.X / 2f, 56f);
+            b.DrawString(Game1.smallFont, label, lp + new Vector2(1f, 1f), Color.Black * 0.5f, 0f, Vector2.Zero, 0.7f, SpriteEffects.None, 1f);
+            b.DrawString(Game1.smallFont, label, lp, Color.White, 0f, Vector2.Zero, 0.7f, SpriteEffects.None, 1f);
+        }
+
+        /// <summary>หยุดเสียงเครื่องทั้งหมด (ตอนออกจากเซฟ)</summary>
+        private void StopAllEngineAudio()
+        {
+            foreach (BikeAudio a in this.BikeAudios.Values)
+            {
+                a.Loop?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.Main?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.Rev?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+                a.FadeLoop?.Stop(Microsoft.Xna.Framework.Audio.AudioStopOptions.Immediate);
+            }
+            this.BikeAudios.Clear();
         }
     }
 }

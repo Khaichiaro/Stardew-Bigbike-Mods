@@ -6,12 +6,8 @@
     <RootNamespace>StardewBigbikeMod</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- ไฟล์อาร์ตต้นฉบับ เก็บไว้ใน repo แต่ไม่ต้องแนบไปกับ mod ที่ deploy/แจก -->
-    <IgnoreModFilePaths>assets/S1000rr-Garage.png</IgnoreModFilePaths>
-	<IgnoreModFilePaths>assets/bigbike.png.backup</IgnoreModFilePaths>
-	<IgnoreModFilePaths>assets/bigbike-V0.1.png</IgnoreModFilePaths>
-	<IgnoreModFilePaths>assets/bigbike-V0.2.png</IgnoreModFilePaths>
-	<IgnoreModFilePaths>assets/bigbike-V0.3.png</IgnoreModFilePaths>
+    <!-- ไฟล์ต้นฉบับ/backup เก็บใน repo แต่ไม่แนบไปกับ mod ที่ deploy/แจก (regex, คั่นด้วยจุลภาค) -->
+    <IgnoreModFilePaths>assets/S1000rr-Garage\.png, assets/bigbike\.png\.backup, assets/bigbike-V0.*\.png, .*\.orig, .*_ai\.wav</IgnoreModFilePaths>
     <!-- เปิดใช้ Harmony สำหรับ patch การวาดรถทับคนขี่ -->
     <EnableHarmony>true</EnableHarmony>
   </PropertyGroup>
