@@ -149,11 +149,11 @@ namespace StardewBigbikeMod
                         // 🔧 DEV: เปลี่ยนวัสดุตรงนี้ — Wood=(O)388, Stone=(O)390, Iron Bar=(O)335, Iridium=(O)337, Battery=(O)787
                         BuildMaterials = new List<BuildingMaterial>
                         {
-                            new() { ItemId = "(O)388", Amount = 1 }, // ไม้ (Wood)
-                            new() { ItemId = "(O)390", Amount = 1 }, // หิน (Stone)
-                            // new() { ItemId = "(O)335", Amount = this.Config.IronBars },     // เหล็กแท่ง
-                            // new() { ItemId = "(O)337", Amount = this.Config.IridiumBars },  // อีรีเดียมแท่ง
-                            // new() { ItemId = "(O)787", Amount = this.Config.Batteries },    // แบตเตอรี่
+                            // new() { ItemId = "(O)388", Amount = 1 }, // ไม้ (Wood)
+                            // new() { ItemId = "(O)390", Amount = 1 }, // หิน (Stone)
+                            new() { ItemId = "(O)335", Amount = this.Config.IronBars },     // เหล็กแท่ง
+                            new() { ItemId = "(O)337", Amount = this.Config.IridiumBars },  // อีรีเดียมแท่ง
+                            new() { ItemId = "(O)787", Amount = this.Config.Batteries },    // แบตเตอรี่
                         },
                         BuildDays = this.Config.BuildDays,
                         Size = new Point(4, 2),
