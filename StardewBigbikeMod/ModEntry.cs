@@ -348,7 +348,12 @@ namespace StardewBigbikeMod
         private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
             if (!Context.IsWorldReady)
+            {
+                // ออกจากเซฟ/กลับหน้า title ทั้งที่เครื่องยังติด → หยุดเสียงเครื่องที่ค้างอยู่
+                if (this.BikeAudios.Count > 0)
+                    this.StopAllEngineAudio();
                 return;
+            }
 
             // จัด offset ของรถ+คนขับ ให้ "รถทุกคันที่มีคนขี่" (ไม่ใช่แค่ของเราเอง) — สำคัญมากในมัลติเพลเยอร์:
             // offset เป็นค่า render เฉพาะเครื่อง ไม่ sync → ทุกเครื่องต้องคำนวณเองให้ครบทุกคน ถึงจะเห็นตรงกัน
