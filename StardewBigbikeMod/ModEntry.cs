@@ -379,8 +379,22 @@ namespace StardewBigbikeMod
             }
             this.WasRidingBike.Value = ridingBike;
 
-            // วาล์วกันค้าง: หลุดจากทะเบียนคนซ้อนเมื่อไหร่ (ไม่ว่าด้วยเหตุไหน) ปลดล็อกตัวละครเสมอ
-            bool seated = this.Passengers.ContainsKey(Game1.player.UniqueMultiplayerID);
+            // วาล์วกันค้าง: ตรวจว่า "ซ้อนจริง" ไหม — ต้องมีคนอื่นขับรถคันที่เราซ้อนอยู่จริงๆ
+            // ถ้าทะเบียนคนซ้อนค้าง (ขี่รถเอง / network สะดุด / คนขับหาย) จะทำให้ canMove=false ค้างจนกดอะไรไม่ได้
+            // → เอาออกจากทะเบียนแล้วปลดล็อกทันที
+            long myId = Game1.player.UniqueMultiplayerID;
+            bool seated = this.Passengers.ContainsKey(myId);
+            if (seated)
+            {
+                Guid bikeId = this.Passengers[myId];
+                bool validRide = Game1.getOnlineFarmers().Any(f =>
+                    f.UniqueMultiplayerID != myId && f.mount is Horse m && m.HorseId == bikeId);
+                if (!validRide || Game1.player.mount is not null) // ไม่มีคนขับรถคันนั้น หรือเราขี่รถเอง = ค้าง
+                {
+                    this.Passengers.Remove(myId);
+                    seated = false;
+                }
+            }
             if (!seated && this.WasPassenger.Value)
             {
                 this.ReleasePassenger(Game1.player, findOpenTile: true);
