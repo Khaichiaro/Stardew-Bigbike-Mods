@@ -29,13 +29,13 @@ namespace StardewBigbikeMod
         public int BuildCost { get; set; } = 10000;
 
         /// <summary>จำนวนเหล็กแท่ง (Iron Bar) ที่ใช้สร้าง</summary>
-        public int IronBars { get; set; } = 5;
+        public int IronBars { get; set; } = 30;
 
         /// <summary>จำนวนอีรีเดียมแท่ง (Iridium Bar) ที่ใช้สร้าง</summary>
-        public int IridiumBars { get; set; } = 1;
+        public int IridiumBars { get; set; } = 5;
 
         /// <summary>จำนวนแบตเตอรี่ (Battery Pack) ที่ใช้สร้าง</summary>
-        public int Batteries { get; set; } = 1;
+        public int Batteries { get; set; } = 5;
 
         /// <summary>จำนวนวันที่ Robin ใช้สร้าง</summary>
         public int BuildDays { get; set; } = 2;

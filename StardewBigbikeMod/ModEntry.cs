@@ -207,21 +207,21 @@ namespace StardewBigbikeMod
                 setValue: value => this.Config.IronBars = value,
                 name: () => this.Helper.Translation.Get("config.iron.name"),
                 tooltip: () => this.Helper.Translation.Get("config.iron.tooltip"),
-                min: 0, max: 999);
+                min: 0, max: 99);
             gmcm.AddNumberOption(
                 mod: this.ModManifest,
                 getValue: () => this.Config.IridiumBars,
                 setValue: value => this.Config.IridiumBars = value,
                 name: () => this.Helper.Translation.Get("config.iridium.name"),
                 tooltip: () => this.Helper.Translation.Get("config.iridium.tooltip"),
-                min: 0, max: 999);
+                min: 0, max: 99);
             gmcm.AddNumberOption(
                 mod: this.ModManifest,
                 getValue: () => this.Config.Batteries,
                 setValue: value => this.Config.Batteries = value,
                 name: () => this.Helper.Translation.Get("config.battery.name"),
                 tooltip: () => this.Helper.Translation.Get("config.battery.tooltip"),
-                min: 0, max: 999);
+                min: 0, max: 99);
             gmcm.AddNumberOption(
                 mod: this.ModManifest,
                 getValue: () => this.Config.BuildDays,
@@ -775,12 +775,12 @@ namespace StardewBigbikeMod
 
         /// <summary>รุ่นรถจาก modData ("s1000rr" ค่าเริ่มต้น = BMW ดำ / "v4s" = Ducati แดง)</summary>
         private static string GetBikeModel(Horse bike) =>
-            bike.modData.TryGetValue(ModelKey, out string? m) ? m : "s1000rr";
+            bike.modData.TryGetValue(ModelKey, out string? m) ? m : "S1000RR";
 
         /// <summary>สลับ sprite sheet ของม้าเป็นบิ๊กไบค์ (เฟรม 32x32) ตามสีที่เลือก + ปิดเสียงฝีเท้าม้า</summary>
         private void ApplyBikeSprite(Horse bike)
         {
-            string wantTex = GetBikeModel(bike) == "v4s" ? BikeTextureRed : BikeTextureName;
+            string wantTex = GetBikeModel(bike) == "V4S" ? BikeTextureRed : BikeTextureName;
             if (bike.Sprite?.textureName.Value != wantTex)
                 bike.Sprite = new AnimatedSprite(wantTex, 0, 32, 32);
             bike.onFootstepAction = _ => { }; // บิ๊กไบค์ไม่มีกีบเท้า — ใช้เสียงเครื่องยนต์แทน
