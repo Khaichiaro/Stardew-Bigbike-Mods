@@ -1,8 +1,8 @@
 {
     "Name": "Big Bike",
     "Author": "Khaichiaro",
-    "Version": "0.5.2",
-    "Description": "Buy a garage from Robin and get a big bike to ride alongside your horse.",
+    "Version": "0.5.4",
+    "Description": "Buy a bike garage from Robin and ride a BMW S1000RR or Ducati V4S with gears, engine sounds, and a passenger seat.",
     "UniqueID": "Khaichiaro.BigBike",
     "EntryDll": "StardewBigbikeMod.dll",
     "MinimumApiVersion": "4.0.0",
