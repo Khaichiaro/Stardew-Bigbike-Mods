@@ -2,7 +2,7 @@
 
 # 🏍️ Big Bike — Stardew Valley Mod
 
-**ซื้อโรงรถบิ๊กไบค์จากโรบินโดยมี BMW S1000RR หรือ Ducati V4S**
+**ซื้อโรงรถบิ๊กไบค์จากโรบินโดยมี BMW S1000RR หรือ Ducati V4S** \n
 *Buy a bike garage from Robin and ride a superbike alongside your horse.*
 
 ![version](https://img.shields.io/badge/version-0.5.4-7C3AED)
