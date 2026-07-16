@@ -2,7 +2,7 @@
 
 # 🏍️ Big Bike — Stardew Valley Mod
 
-**ซื้อโรงรถบิ๊กไบค์จากโรบิน แล้วขี่ BMW S1000RR หรือ Ducati V4S คู่กับม้าของคุณ**
+**ซื้อโรงรถบิ๊กไบค์จากโรบินโดยมี BMW S1000RR หรือ Ducati V4S**
 *Buy a bike garage from Robin and ride a superbike alongside your horse.*
 
 ![version](https://img.shields.io/badge/version-0.5.4-7C3AED)
@@ -56,7 +56,7 @@
 ## 📥 การติดตั้ง (Installation)
 
 1. ติดตั้ง [SMAPI](https://smapi.io) (เวอร์ชัน 4.0.0 ขึ้นไป)
-2. โหลด [Generic Mod Config Menu](https://www.nexusmods.com/stardewvalley/mods/5098) (แนะนำ — ไว้ปรับตั้งค่า)
+2. โหลด [Generic Mod Config Menu](https://www.nexusmods.com/stardewvalley/mods/5098) (แนะนำสำหรับการตั้งค่า)
 3. แตกไฟล์ mod ลงในโฟลเดอร์ `Mods`
 4. เปิดเกมผ่าน SMAPI
 
